@@ -27,7 +27,16 @@ labeled, editable, sourced assumption — never a black-box output. See `STRATEG
 
 **Formula correctness** — calculation outputs must match hand-verified worked examples. A change
 that breaks a known case is a regression. The worked example lives in the POC plan and is encoded
-as a test. Run it before reporting any calculation change done.
+as a test. Run it before reporting any calculation change done:
+
+```sh
+python3 -m unittest discover -s tests   # the metric
+python3 src/cli.py --bill 150           # human + agent-native surface (add --json for agents)
+```
+
+The source of truth is `src/solar_calc.py` (pure) + `src/assumptions.py` (the data model). The
+website (`web/`) is a JS **mirror** of the same formula with an on-load self-check; keep the two in
+sync when the formula changes. No JS runtime in this environment — the Python suite is the metric.
 
 ## Conventions
 

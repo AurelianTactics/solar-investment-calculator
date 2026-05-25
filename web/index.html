@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Community-Solar Savings Estimate (Maine POC)</title>
+<style>
+  :root { --bg:#0f1115; --card:#1a1d23; --ink:#e6e8eb; --muted:#9aa3ad; --accent:#3fb950; --warn:#d29922; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width:720px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:1.5rem; margin:.2em 0; }
+  .lede { color:var(--muted); margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid #2a2f37; border-radius:12px; padding:20px; margin:16px 0; }
+  label { display:block; font-weight:600; margin-bottom:6px; }
+  input[type=number] { background:#0f1115; color:var(--ink); border:1px solid #2a2f37; border-radius:8px; padding:8px 10px; font-size:1rem; width:140px; }
+  .billrow input { font-size:1.4rem; width:180px; }
+  .hint { color:var(--muted); font-weight:400; font-size:.85rem; }
+  details { margin-top:12px; } summary { cursor:pointer; color:var(--muted); }
+  .opt { margin-top:12px; } .opt label { font-weight:500; font-size:.9rem; }
+  .headline { text-align:center; padding:8px 0 4px; }
+  .big { font-size:2.6rem; font-weight:700; color:var(--accent); }
+  .big span { font-size:1rem; color:var(--muted); font-weight:400; margin-left:6px; }
+  .sub { color:var(--muted); }
+  h3 { margin:22px 0 8px; font-size:1.05rem; }
+  ol.steps { padding-left:20px; } ol.steps li { margin-bottom:12px; }
+  .step-label { font-weight:600; }
+  code { background:#0f1115; border:1px solid #2a2f37; border-radius:6px; padding:1px 6px; font-size:.85rem; color:#c9d1d9; display:inline-block; margin:3px 0; }
+  .step-val { color:var(--accent); } .unit { color:var(--muted); font-size:.8rem; }
+  .assumptions { display:grid; gap:14px; }
+  .assumption { border-top:1px solid #2a2f37; padding-top:12px; }
+  .arow { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .tag { font-size:.72rem; padding:2px 8px; border-radius:999px; white-space:nowrap; }
+  .tag-unsourced { background:#3a2a12; color:var(--warn); border:1px solid #5a4316; }
+  .tag-sourced { background:#10301a; color:var(--accent); border:1px solid #1d5230; }
+  .tag-user { background:#12273a; color:#58a6ff; border:1px solid #1b3a57; }
+  .src { font-size:.8rem; color:var(--muted); margin-top:4px; } .src a { color:#58a6ff; }
+  .src.warn { color:var(--warn); }
+  button { background:#21262d; color:var(--ink); border:1px solid #2a2f37; border-radius:8px; padding:8px 14px; cursor:pointer; }
+  #parity-banner { display:none; background:#3a1212; color:#ff7b72; border:1px solid #5a1616; border-radius:8px; padding:10px 14px; margin-bottom:12px; }
+  footer { color:var(--muted); font-size:.8rem; margin-top:24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="parity-banner"></div>
+  <h1>Community-Solar Savings Estimate</h1>
+  <p class="lede">A Maine community-solar proof of concept. Enter your bill; see an estimate where
+    every number is a labeled, editable, sourced assumption — not a black box.</p>
+
+  <div class="card">
+    <div class="billrow">
+      <label for="bill">Roughly how much is your monthly power bill?</label>
+      <input id="bill" type="number" min="0" step="1" value="150" inputmode="decimal">
+    </div>
+    <details>
+      <summary>Optional: refine the inputs</summary>
+      <div class="opt">
+        <label for="annual-usage">Your annual usage in kWh <span class="hint">(if you know it — overrides the bill→usage step)</span></label>
+        <input id="annual-usage" type="number" min="0" step="1" placeholder="(leave blank to estimate)">
+      </div>
+      <p class="hint" style="margin-top:10px">The other assumptions (price, offset, discount, allocation) are editable directly in the result below.</p>
+    </details>
+  </div>
+
+  <div class="card" id="result"></div>
+
+  <button id="reset">Reset assumptions to defaults</button>
+
+  <footer>
+    Calculation core of record: <code>src/solar_calc.py</code> (tested by <code>tests/test_solar_calc.py</code>).
+    This page's formula is a mirror with an on-load self-check. Defaults tagged
+    <em>unsourced — pending research</em> are placeholders until the research repo's answers are folded in.
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

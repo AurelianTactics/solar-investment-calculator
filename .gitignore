@@ -27,3 +27,8 @@ pnpm-debug.log*
 *.log
 .cache/
 coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/

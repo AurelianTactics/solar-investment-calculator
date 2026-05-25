@@ -152,19 +152,32 @@ Each assumption is a record:
 
 ## Stack
 
+> **Stack decision update (2026-05-25, build time):** the original plan called for a JS core +
+> `node --test`. The build environment has **no JS runtime** (no node/deno/bun) — only Python 3.12.
+> Since the *active metric is an executable formula-correctness test*, the tested core must run in
+> the available runtime. So the source-of-truth core and tests are **Python**; the website is a
+> static JS **mirror** of the same formula with an on-load self-check against the canonical worked
+> example. Lesson captured in `docs/solutions/`. The rest of the design (assumption data model,
+> step breakdown, worked example, agent-native parity) is unchanged.
+
 Lean, dependency-free, headlessly testable, agent-native:
 
-- **Calculation core:** a pure ES module `src/calc.mjs` — no DOM, no framework. All functions are
-  pure; the assumption defaults live in `src/assumptions.mjs`. This is what an agent calls
-  directly and what the test suite asserts against (agent-native parity + formula correctness).
-- **UI:** a static `index.html` + `src/app.mjs` that imports the *same* `calc.mjs`. No build step,
-  no bundler — open the file or serve the directory. Progressive disclosure of steps/assumptions
-  in plain DOM.
-- **Tests:** `test/calc.test.mjs` run with Node's built-in runner (`node --test`). No test
-  framework dependency. Encodes the worked example above.
-- **Why this shape:** the dollar logic is testable in isolation and reusable by an agent; the UI
-  is a thin view over it; there's nothing to install, so a fresh session (human or agent) runs the
-  tests with one command. Browser-driven agent parity (Playwright) is a later add, not POC scope.
+- **Calculation core (source of truth):** pure Python `src/solar_calc.py` — no I/O, no framework.
+  The assumption defaults live in `src/assumptions.py`. This is what the test suite asserts against
+  and what an agent imports directly (agent-native parity + formula correctness).
+- **Agent-native / human CLI:** `src/cli.py` — enter a bill (and optional refinements), prints the
+  labeled steps, the result, and each assumption's tag + source. Runnable now (`python3 src/cli.py
+  --bill 150`); this is the testable parity surface in lieu of browser automation.
+- **Website:** a static `web/index.html` + `web/app.js` (vanilla JS, no build step) — the guided
+  walkthrough. The JS formula is a **faithful mirror** of the Python core and runs a self-check
+  against the canonical worked example on load (a cheap parity guard), surfacing a banner if the
+  two ever diverge.
+- **Tests:** `tests/test_solar_calc.py` via `python3 -m unittest` (stdlib only, no deps). Encodes
+  the worked example and the cancellation property, and asserts the `unsourced — pending research`
+  tagging behavior (AE3).
+- **Why this shape:** the dollar logic is tested in isolation and reusable by an agent; the CLI and
+  website are thin views over the same formula; nothing to install. Browser-driven agent parity
+  (Playwright) is a later add, not POC scope.
 
 ## Implementation phases (Phase 3)
 
