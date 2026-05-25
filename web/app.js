@@ -10,23 +10,38 @@ const TAGS = {
   UNSOURCED: "unsourced - pending research",
 };
 
-// Defaults mirror src/assumptions.py. Phase 3 ships the load-bearing three as unsourced.
+// Defaults mirror src/assumptions.py. As of Phase 4 the load-bearing three are sourced (CMP).
 function defaultAssumptions() {
   return {
     price_per_kwh: {
       key: "price_per_kwh",
-      label: "All-in residential price per kWh",
-      value: 0.25, unit: "$/kWh", tag: TAGS.UNSOURCED, source: null,
+      label: "All-in residential price per kWh (CMP)",
+      value: 0.306, unit: "$/kWh", tag: TAGS.DEFAULT_SOURCED,
+      source: {
+        title: "Maine DOE — Electricity Prices (CMP, eff. Jan 1 2026)",
+        url: "https://www.maine.gov/energy/electricity-prices",
+        note: "All-in avg = $168.41 / 550 kWh. Display-only in the bill-first flow; resets each Jan 1.",
+      },
     },
     bill_offset_fraction: {
       key: "bill_offset_fraction",
-      label: "Portion of the bill a community-solar credit offsets",
-      value: 0.6, unit: "fraction", tag: TAGS.UNSOURCED, source: null,
+      label: "Portion of the bill a community-solar credit offsets (CMP)",
+      value: 0.82, unit: "fraction", tag: TAGS.DEFAULT_SOURCED,
+      source: {
+        title: "Maine OPA + Maine DOE — credit offsets per-kWh charges, not the fixed charge",
+        url: "https://www.maine.gov/meopa/electricity/renewable-energy/community_solar",
+        note: "(bill − fixed)/bill ≈ ($168.41 − $30.21)/$168.41 ≈ 0.82 for a 550 kWh CMP bill; rises with usage.",
+      },
     },
     subscription_discount_pct: {
       key: "subscription_discount_pct",
       label: "Subscription discount on the credit value you keep as savings",
-      value: 0.12, unit: "fraction", tag: TAGS.UNSOURCED, source: null,
+      value: 0.15, unit: "fraction", tag: TAGS.DEFAULT_SOURCED,
+      source: {
+        title: "Maine OPA (10–15%) + Solar Gardens (guaranteed 15% on CMP credits)",
+        url: "https://www.maine.gov/meopa/electricity/renewable-energy/community_solar",
+        note: "Discount on the credits, which offset ~82% of the bill → ~12% off the total bill (0.15 × 0.82).",
+      },
     },
     allocation_pct: {
       key: "allocation_pct",

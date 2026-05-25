@@ -4,9 +4,11 @@ Every number used in the calculation is an *assumption*: a labeled, tagged, opti
 record. The transparency mechanic (R6-R8) lives here — a default with no source renders as
 ``unsourced - pending research`` and is never presented as established fact.
 
-Phase 3 ships the three load-bearing defaults as ``unsourced - pending research``. Phase 4
-re-tags them ``default (sourced)`` with citations into ../solar-investment-research once the
-research brief's answers land. ``allocation_pct`` is a stated modeling choice, not external fact.
+As of Phase 4 (2026-05-25) the three load-bearing defaults are ``default (sourced)``, citing the
+research repo's calculator brief (../solar-investment-research/wiki/calculator-brief/answers.md).
+Values are CMP defaults; a Versant user would edit them. ``allocation_pct`` is a stated modeling
+choice, not external fact. The ``unsourced - pending research`` tag remains a first-class state for
+any future assumption whose research hasn't landed.
 """
 
 from __future__ import annotations
@@ -50,24 +52,45 @@ def default_assumptions() -> dict[str, Assumption]:
     return {
         "price_per_kwh": Assumption(
             key="price_per_kwh",
-            label="All-in residential price per kWh",
-            value=0.25,
+            label="All-in residential price per kWh (CMP)",
+            value=0.306,
             unit="$/kWh",
-            tag=UNSOURCED,  # Phase 4 -> $0.306 (CMP), sourced
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Maine DOE — Electricity Prices (CMP, effective Jan 1 2026)",
+                url="https://www.maine.gov/energy/electricity-prices",
+                note="All-in average = $168.41 / 550 kWh. Display-only in the bill-first flow "
+                "(it cancels out of the dollar result). Resets every Jan 1. See "
+                "solar-investment-research/wiki/utilities/cmp-rates.md.",
+            ),
         ),
         "bill_offset_fraction": Assumption(
             key="bill_offset_fraction",
-            label="Portion of the bill a community-solar credit offsets",
-            value=0.60,
+            label="Portion of the bill a community-solar credit offsets (CMP)",
+            value=0.82,
             unit="fraction",
-            tag=UNSOURCED,  # Phase 4 -> 0.82 (CMP), sourced
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Maine OPA + Maine DOE — credit offsets per-kWh charges, not the fixed charge",
+                url="https://www.maine.gov/meopa/electricity/renewable-energy/community_solar",
+                note="(bill - fixed) / bill = ($168.41 - $30.21) / $168.41 ~= 0.82 for a typical "
+                "550 kWh CMP bill; rises with usage. See "
+                "solar-investment-research/wiki/mechanics/maine-bill-anatomy.md.",
+            ),
         ),
         "subscription_discount_pct": Assumption(
             key="subscription_discount_pct",
             label="Subscription discount on the credit value you keep as savings",
-            value=0.12,
+            value=0.15,
             unit="fraction",
-            tag=UNSOURCED,  # Phase 4 -> 0.15, sourced
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Maine OPA (10-15%) + Solar Gardens (guaranteed 15% on CMP credits)",
+                url="https://www.maine.gov/meopa/electricity/renewable-energy/community_solar",
+                note="Discount on the credits, which offset ~82% of the bill, so it nets ~12% off "
+                "the total bill (0.15 x 0.82). See "
+                "solar-investment-research/wiki/options/community-solar-subscription.md.",
+            ),
         ),
         "allocation_pct": Assumption(
             key="allocation_pct",

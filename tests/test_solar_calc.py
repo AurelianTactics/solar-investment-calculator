@@ -14,6 +14,7 @@ from assumptions import (  # noqa: E402
     DEFAULT_SOURCED,
     UNSOURCED,
     USER_PROVIDED,
+    Assumption,
     default_assumptions,
 )
 from solar_calc import compute  # noqa: E402
@@ -85,11 +86,24 @@ class TestUsageFirstFlow(unittest.TestCase):
 
 
 class TestTransparencyMechanic(unittest.TestCase):
-    def test_unsourced_default_is_tagged_pending_research(self):  # AE3
+    def test_unsourced_mechanic_flags_pending_research(self):  # AE3 (the mechanic, robust)
+        # The unsourced state is first-class regardless of which defaults happen to be sourced.
+        a = Assumption(key="x", label="X", value=1.0, unit="fraction", tag=UNSOURCED)
+        self.assertTrue(a.is_unsourced)
+        self.assertIsNone(a.source)
+
+    def test_load_bearing_defaults_are_sourced_after_integration(self):  # Phase 4
         a = default_assumptions()
-        self.assertEqual(a["bill_offset_fraction"].tag, UNSOURCED)
-        self.assertTrue(a["bill_offset_fraction"].is_unsourced)
-        self.assertIsNone(a["bill_offset_fraction"].source)
+        for key in ("price_per_kwh", "bill_offset_fraction", "subscription_discount_pct"):
+            self.assertEqual(a[key].tag, DEFAULT_SOURCED, key)
+            self.assertIsNotNone(a[key].source, key)
+            self.assertFalse(a[key].is_unsourced, key)
+
+    def test_sourced_defaults_match_research_brief(self):  # the numbers Phase 2 landed
+        a = default_assumptions()
+        self.assertAlmostEqual(a["price_per_kwh"].value, 0.306, places=6)
+        self.assertAlmostEqual(a["bill_offset_fraction"].value, 0.82, places=6)
+        self.assertAlmostEqual(a["subscription_discount_pct"].value, 0.15, places=6)
 
     def test_allocation_is_a_stated_default(self):
         a = default_assumptions()
@@ -98,8 +112,8 @@ class TestTransparencyMechanic(unittest.TestCase):
 
     def test_editing_a_default_retags_user_provided_and_clears_source(self):  # AE2, R7
         a = default_assumptions()
-        edited = a["allocation_pct"].with_user_value(0.8)
-        self.assertEqual(edited.value, 0.8)
+        edited = a["bill_offset_fraction"].with_user_value(0.7)
+        self.assertEqual(edited.value, 0.7)
         self.assertEqual(edited.tag, USER_PROVIDED)
         self.assertIsNone(edited.source)
 
