@@ -7,6 +7,9 @@ assumption**, never a black box. See [`STRATEGY.md`](STRATEGY.md).
 The first proof of concept covers **community solar** (zero upfront capital). Rooftop, balcony, and
 battery are later iterations ([`docs/BACKLOG.md`](docs/BACKLOG.md)).
 
+New here? See [`docs/how-to-use-and-verify.md`](docs/how-to-use-and-verify.md) for how to drive the
+calculator and how to trust its numbers.
+
 ## Run it
 
 No dependencies — Python 3 standard library only.

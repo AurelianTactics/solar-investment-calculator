@@ -1,5 +1,4 @@
-# Tech stack is not chosen yet (deferred to Phase 3). This is a starter —
-# adjust once the stack is decided.
+# Stack: Python 3 standard library (core + tests) with a static web mirror (web/).
 
 # OS
 .DS_Store

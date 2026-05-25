@@ -8,6 +8,12 @@ brainstorm: docs/brainstorms/community-solar-poc-requirements.md
 
 # Community-Solar POC Build Plan
 
+> **Stack note (post-build):** this plan specifies a JavaScript core (`*.mjs`, `node --test`). The
+> build environment had no JS runtime, so the core pivoted to **Python** (`src/*.py`,
+> `python3 -m unittest`) with `web/app.js` kept as a self-checking mirror. See
+> `docs/solutions/best-practices/verify-runtime-before-choosing-stack.md`. The `.mjs` filenames
+> below are historical; the shipped equivalents are `src/assumptions.py` / `src/solar_calc.py`.
+
 ## Overview
 
 This plan turns the Phase 1 brainstorm (`docs/brainstorms/community-solar-poc-requirements.md`)
