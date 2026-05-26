@@ -240,29 +240,32 @@ def main(argv=None) -> int:
     p.add_argument("--annual-usage", type=float, default=None, help="annual usage kWh (community/rooftop)")
     args = p.parse_args(argv)
 
-    if args.option == "community":
-        if args.bill is None:
-            p.error("--bill is required for the community option")
-        a = build_community_assumptions(args)
-        result = compute_community(
-            monthly_bill=args.bill,
-            price_per_kwh=a["price_per_kwh"].value,
-            bill_offset_fraction=a["bill_offset_fraction"].value,
-            subscription_discount_pct=a["subscription_discount_pct"].value,
-            allocation_pct=a["allocation_pct"].value,
-            annual_usage_kwh=args.annual_usage,
-        )
-        print(render_community_json(args.bill, a, result) if args.json
-              else render_community_text(args.bill, a, result, args.annual_usage))
-        return 0
+    try:
+        if args.option == "community":
+            if args.bill is None:
+                p.error("--bill is required for the community option")
+            a = build_community_assumptions(args)
+            result = compute_community(
+                monthly_bill=args.bill,
+                price_per_kwh=a["price_per_kwh"].value,
+                bill_offset_fraction=a["bill_offset_fraction"].value,
+                subscription_discount_pct=a["subscription_discount_pct"].value,
+                allocation_pct=a["allocation_pct"].value,
+                annual_usage_kwh=args.annual_usage,
+            )
+            print(render_community_json(args.bill, a, result) if args.json
+                  else render_community_text(args.bill, a, result, args.annual_usage))
+            return 0
 
-    module, merged = capital_spec(args.option)
-    a = apply_overrides(merged, args.set)
-    result = module.compute_from_assumptions(a)
-    shown = CAPITAL_OPTIONS[args.option]["shown"]
-    print(render_capital_json(args.option, a, result, shown) if args.json
-          else render_capital_text(args.option, a, result, shown))
-    return 0
+        module, merged = capital_spec(args.option)
+        a = apply_overrides(merged, args.set)
+        result = module.compute_from_assumptions(a)
+        shown = CAPITAL_OPTIONS[args.option]["shown"]
+        print(render_capital_json(args.option, a, result, shown) if args.json
+              else render_capital_text(args.option, a, result, shown))
+        return 0
+    except ValueError as e:
+        p.error(str(e))  # clean "cli.py: error: <message>" instead of a traceback
 
 
 if __name__ == "__main__":
