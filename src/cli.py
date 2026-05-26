@@ -54,7 +54,8 @@ CAPITAL_OPTIONS = {
     },
     "battery": {
         "label": "Home Battery Storage (Maine)",
-        "assumption_builders": ("battery_assumptions", "capital_assumptions"),
+        # capital first so battery_assumptions() can override horizon_years (10 vs the 25-yr PV default)
+        "assumption_builders": ("capital_assumptions", "battery_assumptions"),
         "shown": [
             "usable_kwh", "installed_cost_per_kwh", "federal_itc_pct", "annual_bill_savings",
             "resilience_value_per_year", "opportunity_rate", "horizon_years",

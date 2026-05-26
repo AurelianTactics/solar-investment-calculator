@@ -344,3 +344,86 @@ def rooftop_assumptions() -> dict[str, Assumption]:
             ),
         ),
     }
+
+
+def battery_assumptions() -> dict[str, Assumption]:
+    """Home battery defaults. Sourced to
+    ../solar-investment-research/wiki/calculator-brief/battery-answers.md.
+
+    The honest framing: a battery doesn't pay for itself on Maine bill economics (no strong
+    arbitrage, no federal credit since 25D expired). Its value is resilience — modeled as a separate,
+    user-set ``resilience_value_per_year`` kept apart from bill savings so the pure-economics verdict
+    stays honest. Note ``horizon_years`` here is 10 (battery warranty), overriding the 25-yr PV
+    default from capital_assumptions().
+    """
+    return {
+        "usable_kwh": Assumption(
+            key="usable_kwh",
+            label="Usable battery capacity",
+            value=13.5,
+            unit="kWh",
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Tesla Powerwall 3 usable capacity (EnergySage)",
+                url="https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/",
+                note="13.5 kWh is the standard home-battery unit. See battery-answers.md.",
+            ),
+        ),
+        "installed_cost_per_kwh": Assumption(
+            key="installed_cost_per_kwh",
+            label="Installed battery cost per kWh",
+            value=998.0,
+            unit="$/kWh",
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="EnergySage Marketplace average — $998/kWh (2026)",
+                url="https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/",
+                note="~$13,473 all-in for a 13.5 kWh Powerwall 3 before incentives.",
+            ),
+        ),
+        "federal_itc_pct": Assumption(
+            key="federal_itc_pct",
+            label="Federal tax credit on battery cost",
+            value=0.0,
+            unit="fraction",
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Battery 25D credit EXPIRED Dec 31, 2025 (was 30%, ≥3 kWh)",
+                url="https://homes.rewiringamerica.org/federal-incentives/25d-rooftop-solar-tax-credit",
+                note="A 2026 cash/loan buyer gets $0 federal credit. See battery-answers.md.",
+            ),
+        ),
+        "annual_bill_savings": Assumption(
+            key="annual_bill_savings",
+            label="Annual electricity-bill savings from the battery",
+            value=0.0,
+            unit="$",
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Modeling choice: ~$0 for a typical Maine residential customer",
+                note="No strong residential TOU arbitrage, and NEB already credits rooftop export "
+                "at retail — so a battery adds little bill savings. Raise it if you have a real "
+                "price spread to arbitrage.",
+            ),
+        ),
+        "resilience_value_per_year": Assumption(
+            key="resilience_value_per_year",
+            label="What backup power during outages is worth to you per year",
+            value=200.0,
+            unit="$",
+            tag=UNSOURCED,
+            source=None,
+        ),
+        "horizon_years": Assumption(
+            key="horizon_years",
+            label="Analysis horizon (battery warranty life)",
+            value=10.0,
+            unit="years",
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Tesla Powerwall warranty — 10 years (70% capacity retention)",
+                url="https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/",
+                note="Battery economics use a 10-yr horizon, not the 25-yr PV horizon.",
+            ),
+        ),
+    }

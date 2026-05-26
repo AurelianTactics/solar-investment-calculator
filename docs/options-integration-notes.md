@@ -80,3 +80,40 @@ simple payback, **NPV +$9,811** at 7% over 25 yr.
 **What's still open.** Third-party-ownership (lease/PPA) economics now that 25D is gone; Maine-
 specific rebates; tariff-level NEB export valuation; Versant defaults. Tracked in
 `rooftop-answers.md`.
+
+---
+
+## Home battery storage (2026-05-25)
+
+**Research pulled:** `../solar-investment-research/wiki/calculator-brief/battery-answers.md` (all
+exit booleans `true`) and `wiki/options/battery-storage.md`.
+
+**What landed** — `src/battery.py` + `battery_assumptions()`, exercised by `tests/test_battery.py`
+and `--option battery`. Defaults: a 13.5 kWh Powerwall at **$998/kWh** → **$13,473** upfront (no
+federal credit), ~$0 bill savings + a **$200/yr** resilience placeholder → **67-yr** payback,
+**NPV −$12,068** over a 10-yr horizon (the market wins).
+
+**What surprised us / what we deliberately modeled honestly.**
+
+1. **This option is supposed to lose on economics — and the calculator says so.** Negative NPV is
+   the *correct* output, not a bug. A battery is an insurance/resilience purchase.
+2. **Resilience is kept separate from bill savings.** `resilience_value_per_year` is a user-set,
+   `unsourced` number; `annual_bill_savings` defaults to ~$0. So the pure-economics picture never
+   hides behind a subjective number — the user sees both and decides.
+3. **Different horizon.** Battery uses a **10-yr** warranty horizon (overriding the 25-yr PV
+   default from `capital_assumptions()`), so the CLI builder order is capital-then-battery.
+4. **The 25D credit took batteries down with it** — same Dec-31-2025 expiry, so `federal_itc_pct`
+   defaults to 0 here too.
+
+**What's still open.** A defensible dollar value for resilience (Maine outage frequency/duration);
+real Maine arbitrage/TOU potential; battery+rooftop pairing economics; in-horizon degradation.
+Tracked in `battery-answers.md`.
+
+---
+
+## Status
+
+All four roadmap options are modeled (community, balcony, rooftop, battery), each on the shared
+assumption model + (for capital options) the capital engine, each with a hand-verified worked
+example in the test suite and a `--option` CLI path. The web mirror is updated to match in the
+multi-option `web/app.js` pass.
