@@ -50,3 +50,33 @@ real price once UL 3700 kits arrive (~fall 2026). All tracked in `balcony-answer
 **Web mirror:** deferred to the single multi-option `web/app.js` pass after rooftop + battery, so
 the UI is rewritten once. Until then the website covers community solar; CLI/Python cover all
 options. (No JS runtime here — the Python suite is the metric.)
+
+---
+
+## Rooftop solar (2026-05-25)
+
+**Research pulled:** `../solar-investment-research/wiki/calculator-brief/rooftop-answers.md` (all
+exit booleans `true`) and `wiki/options/rooftop-solar.md`.
+
+**What landed** — `src/rooftop.py` + `rooftop_assumptions()`, exercised by `tests/test_rooftop.py`
+and `--option rooftop`. Defaults: a 5.5 kW system sized to a typical CMP home at **$2.95/W** →
+**$16,225** upfront (no federal credit), offsetting 6,600 kWh × $0.27 = **$1,782/yr**, **~9.1 yr**
+simple payback, **NPV +$9,811** at 7% over 25 yr.
+
+**What surprised us (the headline).**
+
+1. **The 30% federal credit is GONE for 2026 buyers.** The 25D residential credit **expired Dec 31,
+   2025**, so the shipped `federal_itc_pct` default is **0**, not 0.30. This is the most
+   counterintuitive number in the whole calculator — every installer quote and online calculator
+   still assumes "30% off." Setting it back to 0.30 (e.g. if you beat the deadline) drops payback
+   from ~9.1 to ~6.4 yr.
+2. **Maine's high electricity price rescues the economics.** Even with $0 federal credit, a
+   sized-to-usage system pays back in ~9 yr and clears the 7% opportunity hurdle (NPV > 0) — because
+   each offset kWh is worth ~$0.27.
+3. **Oversizing is a real penalty.** NEB credits beyond annual usage expire at 12 months, so the
+   model caps `effective_kwh` at usage. EnergySage's longer 16.5-yr payback reflects an oversized
+   11.26 kW average system; sizing to usage is materially better.
+
+**What's still open.** Third-party-ownership (lease/PPA) economics now that 25D is gone; Maine-
+specific rebates; tariff-level NEB export valuation; Versant defaults. Tracked in
+`rooftop-answers.md`.

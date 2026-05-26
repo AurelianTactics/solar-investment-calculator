@@ -245,3 +245,102 @@ def balcony_assumptions() -> dict[str, Assumption]:
             source=None,
         ),
     }
+
+
+def rooftop_assumptions() -> dict[str, Assumption]:
+    """Rooftop solar defaults. Sourced to
+    ../solar-investment-research/wiki/calculator-brief/rooftop-answers.md.
+
+    Owned rooftop is net-energy-billing-eligible: kWh credits offset volumetric charges, but excess
+    credits expire after 12 months, so value caps near annual usage. The headline 2026 fact: the
+    30% federal credit (25D) expired Dec 31, 2025 — a cash/loan buyer gets $0, so the default ITC
+    is 0, not 0.30.
+    """
+    return {
+        "capacity_kw": Assumption(
+            key="capacity_kw",
+            label="System size (rooftop)",
+            value=5.5,
+            unit="kW",
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Sized to a typical CMP home (~6,600 kWh/yr at ~1,200 kWh/kW)",
+                note="Editable; size to your own usage. Oversizing wastes credits (they expire at "
+                "12 months). See rooftop-answers.md.",
+            ),
+        ),
+        "specific_yield_kwh_per_kw": Assumption(
+            key="specific_yield_kwh_per_kw",
+            label="Annual production per kW (Maine)",
+            value=1200.0,
+            unit="kWh/kW/yr",
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Maine PV yield (~1,200 kWh/kW/yr)",
+                url="https://www.energysage.com/local-data/solar-panel-cost/me/",
+                note="Standard Maine production figure. See rooftop-answers.md.",
+            ),
+        ),
+        "installed_cost_per_w": Assumption(
+            key="installed_cost_per_w",
+            label="Installed cost per watt (Maine)",
+            value=2.95,
+            unit="$/W",
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="EnergySage — Maine average $2.95/W (May 2026), before incentives",
+                url="https://www.energysage.com/local-data/solar-panel-cost/me/",
+                note="~$33,198 for an average 11.26 kW system; scales ~linearly with size.",
+            ),
+        ),
+        "federal_itc_pct": Assumption(
+            key="federal_itc_pct",
+            label="Federal tax credit on system cost",
+            value=0.0,
+            unit="fraction",
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Federal 25D residential solar credit EXPIRED Dec 31, 2025 (was 30%)",
+                url="https://homes.rewiringamerica.org/federal-incentives/25d-rooftop-solar-tax-credit",
+                note="A 2026 cash/loan buyer gets $0 federal credit. Set to 0.30 only if you "
+                "installed by the 2025 deadline. See rooftop-answers.md.",
+            ),
+        ),
+        "credit_value_per_kwh": Assumption(
+            key="credit_value_per_kwh",
+            label="NEB credit value per kWh (volumetric, CMP)",
+            value=0.27,
+            unit="$/kWh",
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Maine DOE — CMP per-kWh (volumetric) charge a NEB credit offsets",
+                url="https://www.maine.gov/energy/electricity-prices",
+                note="Credits offset per-kWh charges, not the fixed charge. See "
+                "solar-investment-research/wiki/utilities/cmp-rates.md.",
+            ),
+        ),
+        "annual_usage_kwh": Assumption(
+            key="annual_usage_kwh",
+            label="Your annual electricity usage",
+            value=6600.0,
+            unit="kWh",
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Typical CMP residential usage (~550 kWh/month)",
+                note="Caps the value of generation (NEB credits beyond usage expire). Edit to your "
+                "own annual kWh.",
+            ),
+        ),
+        "offset_cap_fraction": Assumption(
+            key="offset_cap_fraction",
+            label="Share of usage that generation is credited against",
+            value=1.0,
+            unit="fraction",
+            tag=DEFAULT_SOURCED,
+            source=Source(
+                title="Modeling choice: value generation up to usage only",
+                note="Stated default (100%). NEB credits bank but expire after 12 months, so "
+                "generation beyond annual usage earns ~nothing.",
+            ),
+        ),
+    }

@@ -169,8 +169,9 @@ def render_capital_text(option_key, a, result, shown) -> str:
     for s in result.steps:
         val = f"{s.value:,.2f}" if s.unit.startswith("$") else f"{s.value:,.0f}"
         out += [f"    {s.n}. {s.label}", f"       {s.formula}", f"       = {val} {s.unit}"]
-    out += ["", f"    5. Capital verdict (vs. {cap.opportunity_rate * 100:.0f}% opportunity cost)",
-            f"       NPV = -upfront + Σ savings_t / (1+r)^t  =  {money(cap.npv)}", ""]
+    verdict_n = len(result.steps) + 1
+    out += ["", f"    {verdict_n}. Capital verdict (vs. {cap.opportunity_rate * 100:.0f}% opportunity cost)",
+            f"       NPV = -upfront + sum_t savings_t / (1+r)^t  =  {money(cap.npv)}", ""]
     out += render_assumptions_block(a, shown)
     out.append("=" * 64)
     return "\n".join(out)
