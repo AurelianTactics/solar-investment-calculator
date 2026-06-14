@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 tools/verify_web.py:*)",
+      "Bash(python3 -m unittest discover -s tests:*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 .claude/hooks/verify_web_gate.py" }
+        ]
+      }
+    ]
+  }
+}

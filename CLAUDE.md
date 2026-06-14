@@ -29,7 +29,19 @@ python3 src/cli.py --option rooftop --set capacity_kw=8   # capital options; --s
 ```
 
 The Python core is the **source of truth**. `web/app.js` is a mirror with a per-option self-check
-banner; keep it in sync when a formula changes (no JS runtime here — the Python suite is the metric).
+banner; keep it in sync when a formula changes.
+
+**Web rendering metric — run after any `web/` change.** "The website works" must be *observed*, not
+claimed. `tools/verify_web.py run` (alias `/verify-web`) drives all four options in headless chromium,
+asserts each renders and the parity self-check did not fire, and writes screenshots + a hashed evidence
+record to gitignored `.verify/`. A **Stop hook** (`.claude/hooks/verify_web_gate.py`) blocks end-of-turn
+if `web/` changed without fresh passing evidence (freshness = content hash). Definition of done for web
+work: a passing `.verify/evidence.json` whose hashes match the current `web/` files.
+
+```sh
+python3 tools/verify_web.py run     # browser loop: render + parity + screenshots + evidence
+python3 tools/verify_web.py check   # deterministic gate (what the Stop hook runs); exit 0 == verified
+```
 
 ## Canonical docs (read what's relevant before non-trivial work)
 

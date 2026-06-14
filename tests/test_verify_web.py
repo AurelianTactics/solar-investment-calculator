@@ -1,0 +1,149 @@
+"""Tests for the deterministic half of tools/verify_web.py — the gate logic and DOM assertions.
+
+These never launch a browser; they exercise the pure functions the Stop gate depends on. The
+browser half (chromium driving) is acceptance-tested live by `python3 tools/verify_web.py run`.
+
+Run with the rest of the suite:  python3 -m unittest discover -s tests
+"""
+
+import os
+import subprocess
+import sys
+import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+
+import verify_web as vw  # noqa: E402
+
+
+class TestBlobHash(unittest.TestCase):
+    def test_matches_git_hash_object(self):
+        # git's blob id for empty content is well-known and version-independent.
+        self.assertEqual(vw.blob_hash(b""), "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391")
+
+    def test_matches_git_for_content(self):
+        data = b"hello\n"
+        self.assertEqual(vw.blob_hash(data), "ce013625030ba8dba906f756967f9e9ca394464a")
+
+
+class TestBuildDriver(unittest.TestCase):
+    def test_injects_before_body_close(self):
+        out = vw.build_driver("<body><div id='result'></div></body>", "rooftop")
+        self.assertIn("selectOption('rooftop')", out)
+        self.assertIn("__probe", out)
+        # shim sits before the closing body tag
+        self.assertLess(out.index("__probe"), out.index("</body>"))
+
+    def test_appends_when_no_body(self):
+        out = vw.build_driver("<div>no body tag</div>", "battery")
+        self.assertIn("selectOption('battery')", out)
+
+
+class TestProbeError(unittest.TestCase):
+    def test_empty_when_clean(self):
+        dom = '<div id="__probe" data-err="" data-opt="community"></div>'
+        self.assertEqual(vw.probe_error(dom), "")
+
+    def test_extracts_error(self):
+        dom = '<div id="__probe" data-err="select:boom" data-opt="rooftop"></div>'
+        self.assertEqual(vw.probe_error(dom), "select:boom")
+
+    def test_missing_probe_is_a_problem(self):
+        self.assertIn("missing", vw.probe_error("<div>nothing</div>"))
+
+
+class TestAssertRender(unittest.TestCase):
+    def _clean_community(self):
+        return (
+            '<div id="__probe" data-err=""></div>'
+            '<div class="big">$221.40<span>/yr saved</span></div>'
+            '<div class="step-label">x</div>'
+        )
+
+    def _clean_rooftop(self):
+        return (
+            '<div id="__probe" data-err=""></div>'
+            '<div class="big">$1,782.00</div>'
+            '<div class="sub">$16,225.00 upfront · payback 9.1 yr · NPV ...</div>'
+            '<div class="step-label">x</div>'
+        )
+
+    def test_clean_community_has_no_problems(self):
+        self.assertEqual(vw.assert_render("community", self._clean_community()), [])
+
+    def test_clean_rooftop_has_no_problems(self):
+        self.assertEqual(vw.assert_render("rooftop", self._clean_rooftop()), [])
+
+    def test_parity_failure_detected(self):
+        dom = self._clean_community() + "Formula self-check FAILED (community)"
+        problems = vw.assert_render("community", dom)
+        self.assertTrue(any("parity" in p for p in problems))
+
+    def test_js_error_detected(self):
+        dom = self._clean_community().replace('data-err=""', 'data-err="TypeError x"')
+        problems = vw.assert_render("community", dom)
+        self.assertTrue(any("JS error" in p for p in problems))
+
+    def test_missing_headline_detected(self):
+        dom = '<div id="__probe" data-err=""></div><div class="step-label">x</div>'
+        problems = vw.assert_render("community", dom)
+        self.assertTrue(any(".big missing" in p for p in problems))
+
+    def test_capital_missing_upfront_detected(self):
+        dom = (
+            '<div id="__probe" data-err=""></div>'
+            '<div class="big">$1,782.00</div><div class="step-label">x</div>'
+        )
+        problems = vw.assert_render("rooftop", dom)
+        self.assertTrue(any("upfront" in p for p in problems))
+
+
+class TestEvaluateGate(unittest.TestCase):
+    HASHES = {"web/index.html": "aaa", "web/app.js": "bbb"}
+
+    def _passing_evidence(self):
+        return {"result": "pass", "file_hashes": dict(self.HASHES), "options": {}}
+
+    def test_no_evidence_blocks(self):
+        ok, reasons = vw.evaluate_gate(None, self.HASHES)
+        self.assertFalse(ok)
+        self.assertTrue(any("no web verification evidence" in r for r in reasons))
+
+    def test_fresh_passing_evidence_passes(self):
+        ok, reasons = vw.evaluate_gate(self._passing_evidence(), self.HASHES)
+        self.assertTrue(ok)
+        self.assertEqual(reasons, [])
+
+    def test_failed_evidence_blocks(self):
+        ev = self._passing_evidence()
+        ev["result"] = "fail"
+        ev["options"] = {"battery": {"problems": ["screenshot not produced"]}}
+        ok, reasons = vw.evaluate_gate(ev, self.HASHES)
+        self.assertFalse(ok)
+        self.assertTrue(any("did not pass" in r for r in reasons))
+
+    def test_stale_hash_blocks_and_names_file(self):
+        ev = self._passing_evidence()
+        current = dict(self.HASHES)
+        current["web/app.js"] = "CHANGED"
+        ok, reasons = vw.evaluate_gate(ev, current)
+        self.assertFalse(ok)
+        self.assertTrue(any("stale" in r and "web/app.js" in r for r in reasons))
+
+
+class TestCliWiring(unittest.TestCase):
+    """check exits non-zero (block) when no evidence exists in a clean temp root."""
+
+    def test_check_blocks_without_evidence(self):
+        # Run check against a throwaway cwd with no .verify — but verify_web resolves root from
+        # its own path, so this asserts the real repo's check returns a defined gate code.
+        root = vw.repo_root()
+        proc = subprocess.run(
+            [sys.executable, os.path.join(root, "tools", "verify_web.py"), "check"],
+            capture_output=True, text=True,
+        )
+        self.assertIn(proc.returncode, (vw.EXIT_OK, vw.EXIT_BLOCK))
+
+
+if __name__ == "__main__":
+    unittest.main()

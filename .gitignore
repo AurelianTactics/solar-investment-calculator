@@ -22,6 +22,9 @@ npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
 
+# Web verification evidence (screenshots, drivers, hashed evidence record)
+.verify/
+
 # Logs / cache / coverage
 *.log
 .cache/
