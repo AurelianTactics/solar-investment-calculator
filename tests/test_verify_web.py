@@ -56,6 +56,7 @@ class TestProbeError(unittest.TestCase):
 class TestAssertRender(unittest.TestCase):
     def _clean_community(self):
         return (
+            '<textarea id="question"></textarea>'
             '<div id="__probe" data-err=""></div>'
             '<div class="big">$221.40<span>/yr saved</span></div>'
             '<div class="step-label">x</div>'
@@ -63,6 +64,7 @@ class TestAssertRender(unittest.TestCase):
 
     def _clean_rooftop(self):
         return (
+            '<textarea id="question"></textarea>'
             '<div id="__probe" data-err=""></div>'
             '<div class="big">$1,782.00</div>'
             '<div class="sub">$16,225.00 upfront · payback 9.1 yr · NPV ...</div>'
