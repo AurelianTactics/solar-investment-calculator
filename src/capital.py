@@ -25,7 +25,7 @@ Headline outputs:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Sequence
 
 
 @dataclass(frozen=True)
@@ -99,5 +99,62 @@ def compare(
         lifetime_roi=lifetime_roi,
         npv=npv,
         net_advantage_fv=net_advantage_fv,
+        yearly=tuple(rows),
+    )
+
+
+def combine(components: Sequence[CapitalResult]) -> CapitalResult:
+    """Sum component cashflow streams into one combined verdict (the combo engine).
+
+    Each component keeps its own escalation/degradation/horizon — those already shaped its
+    ``yearly`` stream. This helper sums per-year cashflows over the LONGEST horizon (a shorter
+    stream simply contributes nothing after its own horizon ends) and derives NPV, payback, and
+    the verdict from the summed stream. NPV is additive across streams at one rate; payback is
+    NOT — it must come from the combined stream, which is why this helper exists.
+
+    The combined record reports ``escalation=0`` / ``degradation=0`` as placeholders: those are
+    single-stream parameters with no meaning for a sum of differently-shaped streams. The real
+    escalation/degradation live in each component's own CapitalResult.
+    """
+    if not components:
+        raise ValueError("combine() needs at least one component stream")
+    rates = {c.opportunity_rate for c in components}
+    if len(rates) > 1:
+        raise ValueError("all component streams must share one opportunity_rate")
+    opportunity_rate = components[0].opportunity_rate
+
+    horizon_years = max(c.horizon_years for c in components)
+    upfront_cost = sum(c.upfront_cost for c in components)
+
+    rows: list[YearRow] = []
+    cumulative = 0.0
+    npv = -upfront_cost
+    fv_savings = 0.0
+    for t in range(1, horizon_years + 1):
+        savings_t = sum(c.yearly[t - 1].savings for c in components if t <= c.horizon_years)
+        cumulative += savings_t
+        npv += savings_t / (1 + opportunity_rate) ** t
+        fv_savings += savings_t * (1 + opportunity_rate) ** (horizon_years - t)
+        rows.append(YearRow(year=t, savings=savings_t, cumulative=cumulative))
+
+    fv_lump = upfront_cost * (1 + opportunity_rate) ** horizon_years
+    annual_savings_year1 = rows[0].savings
+    simple_payback = (
+        upfront_cost / annual_savings_year1 if annual_savings_year1 > 0 else None
+    )
+    lifetime_roi = (cumulative / upfront_cost) if upfront_cost > 0 else float("inf")
+
+    return CapitalResult(
+        upfront_cost=upfront_cost,
+        annual_savings_year1=annual_savings_year1,
+        horizon_years=horizon_years,
+        opportunity_rate=opportunity_rate,
+        escalation=0.0,
+        degradation=0.0,
+        simple_payback_years=simple_payback,
+        lifetime_savings_nominal=cumulative,
+        lifetime_roi=lifetime_roi,
+        npv=npv,
+        net_advantage_fv=fv_savings - fv_lump,
         yearly=tuple(rows),
     )

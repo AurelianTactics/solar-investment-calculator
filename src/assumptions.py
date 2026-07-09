@@ -427,3 +427,54 @@ def battery_assumptions() -> dict[str, Assumption]:
             ),
         ),
     }
+
+
+# --- combined options (battery + PV) ----------------------------------------
+
+BATTERY_PREFIX = "battery_"
+
+
+def _interaction_assumption(pv_label: str) -> Assumption:
+    return Assumption(
+        key="battery_pv_interaction_value_per_year",
+        label=f"Extra annual value from pairing the battery with {pv_label} (interaction)",
+        value=0.0,
+        unit="$",
+        tag=UNSOURCED,
+        source=Source(
+            title="Open research: battery+PV pairing economics",
+            note="No sourced number yet — see docs/options-integration-notes.md, open item "
+            "'battery+rooftop pairing economics'. Default 0 keeps the combo exactly additive "
+            "(each component valued on its own). Rides the battery stream: flat $/yr over the "
+            "battery horizon only.",
+        ),
+    )
+
+
+def _combo_assumptions(pv_builder, pv_label: str) -> dict[str, Assumption]:
+    """Merged assumptions for a battery+PV combo.
+
+    Merge order (documented, per the battery precedent): shared capital defaults first (25-yr PV
+    horizon, escalation, degradation, opportunity rate), then the PV option's own keys (bare —
+    ``capacity_kw`` etc. keep their familiar names), then the battery's keys re-keyed under the
+    ``battery_`` prefix so collisions (``federal_itc_pct``, ``horizon_years``) are resolved
+    per-component, never shared. Finally the combo-only interaction slot.
+    """
+    merged: dict[str, Assumption] = {}
+    merged.update(capital_assumptions())
+    merged.update(pv_builder())
+    for key, asm in battery_assumptions().items():
+        prefixed = BATTERY_PREFIX + key
+        merged[prefixed] = replace(asm, key=prefixed)
+    merged["battery_pv_interaction_value_per_year"] = _interaction_assumption(pv_label)
+    return merged
+
+
+def battery_rooftop_assumptions() -> dict[str, Assumption]:
+    """battery+rooftop combo defaults: rooftop keys bare, battery keys ``battery_``-prefixed."""
+    return _combo_assumptions(rooftop_assumptions, "rooftop solar")
+
+
+def battery_balcony_assumptions() -> dict[str, Assumption]:
+    """battery+balcony combo defaults: balcony keys bare, battery keys ``battery_``-prefixed."""
+    return _combo_assumptions(balcony_assumptions, "plug-in solar")

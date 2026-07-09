@@ -61,6 +61,34 @@ CAPITAL_OPTIONS = {
             "resilience_value_per_year", "opportunity_rate", "horizon_years",
         ],
     },
+    # Combined options: one additive mechanism (combo.py), two thin modules. Battery keys are
+    # battery_-prefixed so collisions (federal_itc_pct, horizon_years) stay per-component.
+    "battery+rooftop": {
+        "label": "Battery + Rooftop Solar (Maine)",
+        "module": "battery_rooftop",
+        "assumption_builders": ("battery_rooftop_assumptions",),
+        "shown": [
+            "capacity_kw", "specific_yield_kwh_per_kw", "installed_cost_per_w", "federal_itc_pct",
+            "credit_value_per_kwh", "annual_usage_kwh", "offset_cap_fraction",
+            "battery_usable_kwh", "battery_installed_cost_per_kwh", "battery_federal_itc_pct",
+            "battery_annual_bill_savings", "battery_resilience_value_per_year",
+            "battery_horizon_years", "battery_pv_interaction_value_per_year",
+            "opportunity_rate", "electricity_escalation", "panel_degradation", "horizon_years",
+        ],
+    },
+    "battery+balcony": {
+        "label": "Battery + Balcony / Plug-In Solar (Maine)",
+        "module": "battery_balcony",
+        "assumption_builders": ("battery_balcony_assumptions",),
+        "shown": [
+            "capacity_kw", "specific_yield_kwh_per_kw", "self_consumption_fraction",
+            "volumetric_rate_per_kwh", "kit_cost", "electrician_cost",
+            "battery_usable_kwh", "battery_installed_cost_per_kwh", "battery_federal_itc_pct",
+            "battery_annual_bill_savings", "battery_resilience_value_per_year",
+            "battery_horizon_years", "battery_pv_interaction_value_per_year",
+            "opportunity_rate", "electricity_escalation", "panel_degradation", "horizon_years",
+        ],
+    },
 }
 
 
@@ -68,7 +96,7 @@ def capital_spec(option_key):
     """Lazily resolve (module, merged-assumptions) for a capital option."""
     import assumptions as asm_mod
 
-    module = importlib.import_module(option_key)
+    module = importlib.import_module(CAPITAL_OPTIONS[option_key].get("module", option_key))
     merged: dict = {}
     for builder in CAPITAL_OPTIONS[option_key]["assumption_builders"]:
         merged.update(getattr(asm_mod, builder)())
@@ -225,8 +253,14 @@ def render_assumptions_block(a: dict, shown: list[str]) -> list[str]:
 
 
 def main(argv=None) -> int:
+    # Windows consoles often default to a legacy codepage (cp1252) that can't encode characters
+    # appearing in source notes (e.g. '≥'); degrade to replacement chars instead of crashing.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
     p = argparse.ArgumentParser(description="Estimate Maine solar savings across options.")
-    p.add_argument("--option", choices=["community", "balcony", "rooftop", "battery"],
+    p.add_argument("--option",
+                   choices=["community", "balcony", "rooftop", "battery",
+                            "battery+rooftop", "battery+balcony"],
                    default="community", help="which solar option to model (default: community)")
     p.add_argument("--bill", type=float, default=None, help="monthly bill ($) — required for community")
     p.add_argument("--set", action="append", default=[], metavar="KEY=VAL",
