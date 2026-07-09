@@ -6,7 +6,16 @@ sourced assumption — never a black-box output. **Why** this exists and who it'
 
 ## What this is
 
-Python 3 **standard library only** (no deps) + a static web mirror. Four options are modeled:
+Python 3 core + a static web mirror. The prototype-era "standard library only" rule is **retired**
+(2026-07-09) — do not resurrect it. Dependencies are managed with **uv**: a venv created **outside
+the repo**, installed from the checked-in `requirements.txt`:
+
+```sh
+uv venv %USERPROFILE%\.venvs\solar-calc          # one-time, outside the repo
+uv pip install -r requirements.txt               # after activating the venv
+```
+
+Four options are modeled:
 
 - **community solar** — zero capital; `src/solar_calc.py`.
 - **balcony / plug-in, rooftop, battery** — capital options on the shared capital-allocation engine
@@ -23,10 +32,14 @@ human + agent surface. `web/` mirrors the Python formulas with an on-load self-c
 change that breaks a known case is a regression.
 
 ```sh
-python3 -m unittest discover -s tests        # the metric (all options)
-python3 src/cli.py --bill 150                # community (default); --json for agents
-python3 src/cli.py --option rooftop --set capacity_kw=8   # capital options; --set overrides any assumption
+pytest tests                                 # the metric (all options)
+python src/cli.py --bill 150                 # community (default); --json for agents
+python src/cli.py --option rooftop --set capacity_kw=8   # capital options; --set overrides any assumption
 ```
+
+**pytest** is the test runner (existing `unittest`-style tests are collected as-is; new tests may
+be written pytest-style). Until the venv + `requirements.txt` exist, `python -m unittest discover
+-s tests` still works as a fallback.
 
 The Python core is the **source of truth**. `web/app.js` is a mirror with a per-option self-check
 banner; keep it in sync when a formula changes.
@@ -39,8 +52,8 @@ if `web/` changed without fresh passing evidence (freshness = content hash). Def
 work: a passing `.verify/evidence.json` whose hashes match the current `web/` files.
 
 ```sh
-python3 tools/verify_web.py run     # browser loop: render + parity + screenshots + evidence
-python3 tools/verify_web.py check   # deterministic gate (what the Stop hook runs); exit 0 == verified
+python tools/verify_web.py run      # browser loop: render + parity + screenshots + evidence
+python tools/verify_web.py check    # deterministic gate (what the Stop hook runs); exit 0 == verified
 ```
 
 ## Canonical docs (read what's relevant before non-trivial work)
