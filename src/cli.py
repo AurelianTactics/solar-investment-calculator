@@ -242,9 +242,13 @@ def render_assumptions_block(a: dict, shown: list[str]) -> list[str]:
         asm = a[key]
         out.append(f"    - {asm.label}")
         out.append(f"        {key} = {asm.value}  ({asm.unit})   [{asm.tag}]")
+        if asm.explain:
+            out.append(f"        what it means: {asm.explain}")
         if asm.source:
             cite = asm.source.title + (f" <{asm.source.url}>" if asm.source.url else "")
             out.append(f"        source: {cite}")
+            if asm.source.what_is_it:
+                out.append(f"        what the source is: {asm.source.what_is_it}")
             if asm.source.note:
                 out.append(f"        note: {asm.source.note}")
         elif asm.is_unsourced:
