@@ -1,0 +1,13 @@
+# Service (LangGraph agent) deps + dev tooling. Installed into a uv venv created OUTSIDE
+# the repo (see CLAUDE.md / service/README.md):
+#   uv venv %USERPROFILE%\.venvs\solar-calc
+#   uv pip install -r requirements.txt --python %USERPROFILE%\.venvs\solar-calc\Scripts\python.exe
+#
+# The calculation core (src/) and the deterministic verifier (tools/) remain stdlib-only;
+# only service/ and the test runner need any of this.
+langgraph>=1.2
+langchain-anthropic>=0.3
+fastapi>=0.115
+uvicorn>=0.30
+httpx>=0.27
+pytest>=8

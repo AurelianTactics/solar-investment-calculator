@@ -25,6 +25,9 @@ pnpm-debug.log*
 # Web verification evidence (screenshots, drivers, hashed evidence record)
 .verify/
 
+# Agent-service spend ledger (accumulated LLM cost; local state, never committed)
+service/.spend.json
+
 # Logs / cache / coverage
 *.log
 .cache/
