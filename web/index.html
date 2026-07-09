@@ -6,7 +6,7 @@
 <title>Maine Solar Investment Calculator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
     --paper:#f4eddf; --paper-2:#ece2cf; --card:#fffdf7;
@@ -60,32 +60,74 @@
   label { display:block; font-weight:600; margin-bottom:7px; color:var(--ink); }
   .hint { color:var(--muted); font-weight:400; font-size:.86rem; }
 
-  /* select styled as an almanac dropdown */
-  select {
-    appearance:none; -webkit-appearance:none; width:100%; cursor:pointer;
-    background:var(--paper); color:var(--ink);
-    border:1.5px solid var(--rule-strong); border-radius:10px;
-    padding:12px 40px 12px 14px; font:600 1.02rem/1.2 "Public Sans", sans-serif;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' stroke='%23bf7a13' stroke-width='2'%3E%3Cpath d='M2 5l5 5 5-5'/%3E%3C/svg%3E");
-    background-repeat:no-repeat; background-position:right 14px center;
+  /* ---- the question box: ask the almanac ---- */
+  .askrow { display:flex; gap:10px; align-items:stretch; }
+  #question {
+    flex:1; background:var(--paper); color:var(--ink); resize:none;
+    border:none; border-bottom:2px solid var(--rule-strong); border-radius:0;
+    padding:10px 4px 12px; min-height:64px;
+    font-family:"Fraunces", Georgia, serif; font-weight:500; font-style:italic;
+    font-size:1.25rem; line-height:1.35;
   }
-  select:focus-visible, input:focus-visible { outline:2px solid var(--sun); outline-offset:1px; }
+  #question:focus-visible { outline:none; border-bottom-color:var(--sun); }
+  #ask {
+    align-self:flex-end; background:var(--ink); color:var(--paper);
+    border:1px solid var(--ink); border-radius:10px; padding:12px 20px; cursor:pointer;
+    font:600 .95rem "Public Sans", sans-serif; letter-spacing:.02em; white-space:nowrap;
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  #ask:hover { transform:translateY(-1px); box-shadow:0 8px 18px -10px rgba(31,38,29,.6); }
+  .samples { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+  button.sample {
+    background:var(--paper-2); color:var(--ink-soft); border:1px solid var(--rule-strong);
+    border-radius:999px; padding:7px 14px; cursor:pointer; margin:0;
+    font:500 .82rem "Public Sans", sans-serif;
+    transition:border-color .12s ease, color .12s ease;
+  }
+  button.sample:hover { border-color:var(--sun); color:var(--sun); transform:none; box-shadow:none; }
+
+  /* ---- notices ---- */
+  #notice { display:none; background:var(--sky-bg); color:var(--sky);
+    border:1.5px solid var(--sky-bd); border-left:4px solid var(--sky);
+    border-radius:10px; padding:12px 16px; margin:18px 0 0; font-weight:500; }
+  #notice.show { display:block; }
+  #parity-banner { display:none; background:var(--clay-bg); color:var(--clay);
+    border:1.5px solid var(--clay-bd); border-left:4px solid var(--clay);
+    border-radius:10px; padding:12px 16px; margin-bottom:18px; font-weight:500; }
+
+  /* ---- the statement line (R3: plain-sentence scenario description) ---- */
+  #statement { font-family:"Fraunces", Georgia, serif; font-style:italic; font-weight:500;
+    font-size:1.12rem; color:var(--ink-soft); margin:22px 2px 0; line-height:1.5; }
+
+  /* ---- refine drawer ---- */
+  details.refine { margin:18px 0 0; }
+  details.refine > summary { cursor:pointer; color:var(--sun); font-weight:600; font-size:.95rem;
+    list-style:none; display:inline-flex; align-items:center; gap:6px; }
+  details.refine > summary::-webkit-details-marker { display:none; }
+  details.refine > summary::before { content:"✎"; font-size:1rem; }
+  details.refine[open] > summary::before { content:"–"; font:600 1.1rem "IBM Plex Mono", monospace; }
+  .refine-body { background:var(--card); border:1px solid var(--rule); border-radius:14px;
+    padding:20px 22px; margin-top:12px; box-shadow:var(--shadow); }
+
+  .toggles { display:flex; flex-wrap:wrap; gap:9px; margin:4px 0 4px; }
+  button.toggle {
+    background:var(--paper); color:var(--ink-soft); border:1.5px solid var(--rule-strong);
+    border-radius:9px; padding:10px 16px; cursor:pointer; margin:0;
+    font:600 .88rem "Public Sans", sans-serif; letter-spacing:.05em; text-transform:uppercase;
+    transition:all .12s ease;
+  }
+  button.toggle:hover { border-color:var(--sun); color:var(--sun); transform:none; box-shadow:none; }
+  button.toggle.active { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+  .toggle-hint { margin-top:8px; }
 
   input[type=number] {
     background:var(--card); color:var(--ink); border:1.5px solid var(--rule-strong);
     border-radius:9px; padding:9px 11px; font:500 1rem "IBM Plex Mono", monospace; width:150px;
   }
-  .billrow input { font-size:1.5rem; width:190px; padding:12px 14px; }
-
-  details { margin-top:16px; border-top:1px solid var(--rule); padding-top:14px; }
-  summary { cursor:pointer; color:var(--sun); font-weight:600; font-size:.9rem;
-    list-style:none; display:inline-flex; align-items:center; gap:6px; }
-  summary::-webkit-details-marker { display:none; }
-  summary::before { content:"+"; font:600 1.1rem "IBM Plex Mono", monospace; }
-  details[open] summary::before { content:"–"; }
-  .opt { margin-top:14px; } .opt label { font-weight:600; font-size:.92rem; }
-
-  #blurb { margin-top:12px; }
+  input:focus-visible { outline:2px solid var(--sun); outline-offset:1px; }
+  .billrow input { font-size:1.4rem; width:180px; padding:11px 13px; }
+  .opt { margin-top:16px; } .opt label { font-weight:600; font-size:.92rem; }
+  #bill-row { margin-top:16px; }
 
   /* ---- result headline ---- */
   #result { padding-top:6px; }
@@ -135,7 +177,23 @@
   .src a { color:var(--sky); text-underline-offset:2px; }
   .src.warn { color:var(--clay); font-weight:500; }
 
-  /* ---- reset button ---- */
+  details.why { margin-top:9px; }
+  details.why > summary { cursor:pointer; color:var(--sun); font-weight:600; font-size:.82rem;
+    list-style:none; display:inline-flex; align-items:center; gap:5px; }
+  details.why > summary::-webkit-details-marker { display:none; }
+  details.why > summary::before { content:"+"; font:600 1rem "IBM Plex Mono", monospace; }
+  details.why[open] > summary::before { content:"–"; }
+  .deep { background:var(--paper-2); border:1px solid var(--rule); border-radius:9px;
+    padding:12px 15px; margin-top:8px; font-size:.9rem; line-height:1.6; color:var(--ink-soft); }
+  .deep p { margin:0 0 9px; } .deep p:last-child { margin-bottom:0; }
+
+  /* ---- follow-up (R5) ---- */
+  .followup { background:var(--pine-bg); border:1px solid var(--pine-bd);
+    border-left:4px solid var(--pine); border-radius:10px; padding:13px 16px;
+    margin-top:24px; font-size:.92rem; color:var(--ink-soft); }
+  .followup strong { color:var(--pine); }
+
+  /* ---- buttons ---- */
   button {
     background:var(--ink); color:var(--paper); border:1px solid var(--ink);
     border-radius:10px; padding:11px 18px; cursor:pointer; margin-top:20px;
@@ -144,11 +202,6 @@
   }
   button:hover { transform:translateY(-1px); box-shadow:0 8px 18px -10px rgba(31,38,29,.6); }
   button:active { transform:translateY(0); }
-
-  /* ---- parity alarm ---- */
-  #parity-banner { display:none; background:var(--clay-bg); color:var(--clay);
-    border:1.5px solid var(--clay-bd); border-left:4px solid var(--clay);
-    border-radius:10px; padding:12px 16px; margin-bottom:18px; font-weight:500; }
 
   footer { color:var(--muted); font-size:.82rem; line-height:1.6; margin-top:34px;
     padding-top:18px; border-top:3px double var(--rule-strong); }
@@ -164,50 +217,67 @@
     <div class="sun-mark" aria-hidden="true"></div>
     <p class="kicker">Maine · Residential Solar</p>
     <h1>The Solar <em>Ledger</em></h1>
-    <p class="lede">Every number here is a labeled, editable, sourced assumption — never a black box.
-      Pick an option; for the capital options (balcony, rooftop, battery) you also get payback and an
-      NPV verdict against investing the same cash elsewhere.</p>
+    <p class="lede">Ask a plain question, get a fact-checkable answer. Every number below is a
+      labeled, editable, sourced assumption — never a black box.</p>
   </header>
 
   <div class="card">
-    <p class="card-label">Step one — choose an option</p>
-    <label for="option" class="hint" style="font-weight:600;color:var(--ink)">Which solar option?</label>
-    <select id="option">
-      <option value="community">Community solar (zero capital)</option>
-      <option value="balcony">Balcony / plug-in solar</option>
-      <option value="rooftop">Rooftop solar</option>
-      <option value="battery">Home battery storage</option>
-    </select>
-    <p id="blurb" class="hint"></p>
+    <p class="card-label">Ask the ledger</p>
+    <div class="askrow">
+      <textarea id="question" rows="2" aria-label="Your solar question">What savings would I get with community solar when my bill is $150 a month?</textarea>
+      <button id="ask" type="button">Ask</button>
+    </div>
+    <div class="samples" aria-label="Sample questions">
+      <button class="sample" type="button">What if I put solar panels on my roof?</button>
+      <button class="sample" type="button">Is a home battery worth it with rooftop solar?</button>
+      <button class="sample" type="button">I rent — what can a plug-in balcony kit save me?</button>
+    </div>
+    <div id="notice" role="status"></div>
   </div>
 
-  <div class="card" id="bill-card">
-    <p class="card-label">Step two — your situation</p>
-    <div class="billrow">
-      <label for="bill">Roughly how much is your monthly power bill?</label>
-      <input id="bill" type="number" min="0" step="1" value="150" inputmode="decimal">
-    </div>
-    <details>
-      <summary>Optional: refine the inputs</summary>
+  <p id="statement"></p>
+
+  <details class="refine" id="refine">
+    <summary>Refine this estimate</summary>
+    <div class="refine-body">
+      <label>Which option (or pairing)?</label>
+      <div class="toggles" role="group" aria-label="Solar options">
+        <button class="toggle" type="button" data-part="community">Community</button>
+        <button class="toggle" type="button" data-part="balcony">Balcony kit</button>
+        <button class="toggle" type="button" data-part="rooftop">Rooftop</button>
+        <button class="toggle" type="button" data-part="battery">Battery</button>
+      </div>
+      <p class="hint toggle-hint">Battery pairs with rooftop or the balcony kit. Community solar
+        stands alone, and rooftop + balcony isn’t offered (one PV system at a time).</p>
+
+      <div class="billrow" id="bill-row">
+        <label for="bill">Roughly how much is your monthly power bill?
+          <span class="tag tag-sourced" id="bill-tag">default (sourced)</span></label>
+        <input id="bill" type="number" min="0" step="1" value="168.41" inputmode="decimal">
+        <p class="hint" style="margin-top:8px">Pre-filled with the average Maine CMP bill ($168.41 at
+          550 kWh, Maine DOE) until you enter yours.</p>
+      </div>
+
       <div class="opt">
         <label for="annual-usage">Your annual usage in kWh <span class="hint">(if you know it — overrides the bill→usage step)</span></label>
         <input id="annual-usage" type="number" min="0" step="1" placeholder="estimate from bill">
       </div>
-      <p class="hint" style="margin-top:12px">The other assumptions are editable directly in the result below.</p>
-    </details>
-  </div>
+      <p class="hint" style="margin-top:12px">Every other assumption is editable directly in the
+        ledger below — expand a row to see what it means and where it comes from.</p>
+      <button id="reset" type="button">↺ Reset assumptions to defaults</button>
+    </div>
+  </details>
 
   <div class="card" id="result"></div>
 
-  <button id="reset">↺ Reset assumptions to defaults</button>
-
   <footer>
-    Calculation core of record: the Python modules in <code>src/</code> (community: <code>solar_calc.py</code>,
-    plus <code>capital.py</code>, <code>balcony.py</code>, <code>rooftop.py</code>, <code>battery.py</code>),
+    Calculation core of record: the Python modules in <code>src/</code> (community:
+    <code>solar_calc.py</code>, plus <code>capital.py</code>, <code>balcony.py</code>,
+    <code>rooftop.py</code>, <code>battery.py</code>, and the combos in <code>combo.py</code>),
     tested by <code>tests/</code>. This page's formulas are a mirror with an on-load self-check for
-    every option. Defaults are CMP/Maine values sourced from the research repo; edit any to fit your
-    situation. Anything tagged <em>unsourced — pending research</em> should not be treated as
-    established fact.
+    every option — including battery + rooftop and battery + balcony. Defaults are CMP/Maine values
+    sourced from the research repo; edit any to fit your situation. Anything tagged
+    <em>unsourced — pending research</em> should not be treated as established fact.
   </footer>
 </div>
 <script src="app.js"></script>

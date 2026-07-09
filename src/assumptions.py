@@ -92,6 +92,27 @@ class Assumption:
 def default_assumptions() -> dict[str, Assumption]:
     """The community-solar shipped defaults. Returns a fresh dict each call (records are immutable)."""
     return {
+        "default_monthly_bill": Assumption(
+            key="default_monthly_bill",
+            label="Average Maine monthly electricity bill (used when you haven't entered yours)",
+            value=168.41,
+            unit="$",
+            tag=DEFAULT_SOURCED,
+            explain=(
+                "The starting bill the estimate uses before you've told us yours — the average "
+                "CMP residential bill for a typical 550 kWh month. Every dollar figure scales "
+                "with the bill, so replacing this with your own bill (top of any recent "
+                "statement) is the first and easiest personalization. A bigger bill means "
+                "proportionally bigger community-solar savings."
+            ),
+            source=Source(
+                title="Maine DOE — CMP average residential bill $168.41 @ 550 kWh (eff. Jan 1 2026)",
+                url="https://www.maine.gov/energy/electricity-prices",
+                note="See solar-investment-research/wiki/utilities/cmp-rates.md. Used only until "
+                "a real bill is entered; then the estimate re-tags user-provided.",
+                what_is_it=_WHAT_MAINE_DOE,
+            ),
+        ),
         "price_per_kwh": Assumption(
             key="price_per_kwh",
             label="All-in residential price per kWh (CMP)",

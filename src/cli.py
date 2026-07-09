@@ -154,7 +154,8 @@ def render_community_text(bill, a, result, annual_usage_override) -> str:
         out += [f"    {s.n}. {s.label}", f"       {s.formula}", f"       = {val} {s.unit}"]
     out.append("")
     out += render_assumptions_block(
-        a, ["price_per_kwh", "bill_offset_fraction", "subscription_discount_pct", "allocation_pct"])
+        a, ["default_monthly_bill", "price_per_kwh", "bill_offset_fraction",
+            "subscription_discount_pct", "allocation_pct"])
     if annual_usage_override is not None:
         out.append(f"    - Annual usage (user-provided): {annual_usage_override:,.0f} kWh")
     out.append("=" * 64)
@@ -266,7 +267,8 @@ def main(argv=None) -> int:
                    choices=["community", "balcony", "rooftop", "battery",
                             "battery+rooftop", "battery+balcony"],
                    default="community", help="which solar option to model (default: community)")
-    p.add_argument("--bill", type=float, default=None, help="monthly bill ($) — required for community")
+    p.add_argument("--bill", type=float, default=None,
+                   help="monthly bill ($) for community; defaults to the sourced Maine average")
     p.add_argument("--set", action="append", default=[], metavar="KEY=VAL",
                    help="override any assumption by key (repeatable); re-tags it user-provided")
     p.add_argument("--json", action="store_true", help="emit machine-readable JSON")
@@ -280,19 +282,20 @@ def main(argv=None) -> int:
 
     try:
         if args.option == "community":
-            if args.bill is None:
-                p.error("--bill is required for the community option")
             a = build_community_assumptions(args)
+            # No --bill? Fall back to the sourced average Maine bill (R2) — still an assumption,
+            # shown with its tag, never silently invented.
+            bill = args.bill if args.bill is not None else a["default_monthly_bill"].value
             result = compute_community(
-                monthly_bill=args.bill,
+                monthly_bill=bill,
                 price_per_kwh=a["price_per_kwh"].value,
                 bill_offset_fraction=a["bill_offset_fraction"].value,
                 subscription_discount_pct=a["subscription_discount_pct"].value,
                 allocation_pct=a["allocation_pct"].value,
                 annual_usage_kwh=args.annual_usage,
             )
-            print(render_community_json(args.bill, a, result) if args.json
-                  else render_community_text(args.bill, a, result, args.annual_usage))
+            print(render_community_json(bill, a, result) if args.json
+                  else render_community_text(bill, a, result, args.annual_usage))
             return 0
 
         module, merged = capital_spec(args.option)

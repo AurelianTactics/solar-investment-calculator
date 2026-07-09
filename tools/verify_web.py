@@ -39,8 +39,8 @@ import tempfile
 # Files whose content defines "the website". A change to any of these invalidates prior evidence.
 WEB_FILES = ["web/index.html", "web/app.js"]
 
-# Options the page exposes (mirror of the OPTIONS registry in web/app.js).
-OPTIONS = ["community", "balcony", "rooftop", "battery"]
+# Options the page exposes (mirror of the OPTIONS registry in web/app.js) — all six R4 states.
+OPTIONS = ["community", "balcony", "rooftop", "battery", "battery+rooftop", "battery+balcony"]
 
 VERIFY_DIR = ".verify"
 EVIDENCE_PATH = os.path.join(VERIFY_DIR, "evidence.json")
@@ -136,6 +136,9 @@ def assert_render(option: str, dom: str) -> list[str]:
     else:
         if "upfront" not in dom:
             problems.append(f"{option} headline missing 'upfront' / NPV verdict line")
+    # question-first layout markers (R1): the question box must exist in every state
+    if 'id="question"' not in dom:
+        problems.append("question box missing (#question) — question-first layout broken")
     return problems
 
 
