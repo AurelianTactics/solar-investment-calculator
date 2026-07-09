@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 
@@ -129,6 +130,50 @@ class TestEvaluateGate(unittest.TestCase):
         ok, reasons = vw.evaluate_gate(ev, current)
         self.assertFalse(ok)
         self.assertTrue(any("stale" in r and "web/app.js" in r for r in reasons))
+
+
+class TestFindChromium(unittest.TestCase):
+    """Discovery must be OS-general (R13): PATH names first, then per-OS well-known locations.
+
+    Each scenario simulates a machine where only one browser exists, regardless of the OS the
+    test itself runs on.
+    """
+
+    ENV = {
+        "ProgramFiles": r"C:\Program Files",
+        "ProgramFiles(x86)": r"C:\Program Files (x86)",
+        "LOCALAPPDATA": r"C:\Users\u\AppData\Local",
+    }
+
+    def _find_with(self, existing_path):
+        with mock.patch.object(vw.shutil, "which", return_value=None), \
+             mock.patch.dict(vw.os.environ, self.ENV), \
+             mock.patch.object(vw.os.path, "exists",
+                               side_effect=lambda p: p == existing_path):
+            return vw.find_chromium()
+
+    def test_path_hit_wins(self):
+        with mock.patch.object(vw.shutil, "which",
+                               side_effect=lambda n: "/usr/bin/google-chrome" if n == "google-chrome" else None):
+            self.assertEqual(vw.find_chromium(), "/usr/bin/google-chrome")
+
+    def test_linux_only_machine(self):
+        self.assertEqual(self._find_with("/snap/bin/chromium"), "/snap/bin/chromium")
+
+    def test_windows_edge_only_machine(self):
+        edge = os.path.join(r"C:\Program Files (x86)", "Microsoft", "Edge", "Application", "msedge.exe")
+        self.assertEqual(self._find_with(edge), edge)
+
+    def test_windows_chrome_only_machine(self):
+        chrome = os.path.join(r"C:\Program Files", "Google", "Chrome", "Application", "chrome.exe")
+        self.assertEqual(self._find_with(chrome), chrome)
+
+    def test_macos_only_machine(self):
+        mac = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        self.assertEqual(self._find_with(mac), mac)
+
+    def test_no_browser_anywhere(self):
+        self.assertIsNone(self._find_with("/nonexistent"))
 
 
 class TestCliWiring(unittest.TestCase):

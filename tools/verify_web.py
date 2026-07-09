@@ -30,6 +30,7 @@ import datetime as _dt
 import hashlib
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -155,12 +156,38 @@ def evaluate_gate(evidence: dict | None, current: dict[str, str]) -> tuple[bool,
 
 # --------------------------------------------------------------------------- chromium
 
+def _well_known_browsers() -> list[str]:
+    """Chromium-family binaries in their per-OS default locations (Linux, Windows, macOS).
+
+    Order encodes preference: Chrome/Chromium first, Edge (chromium-based, ships with Windows)
+    as the fallback that makes the loop runnable on a stock Windows machine.
+    """
+    paths = [
+        # Linux
+        "/snap/bin/chromium", "/usr/bin/chromium", "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        # macOS
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    ]
+    # Windows: Chrome then Edge, under every root they install to.
+    win_roots = [os.environ.get(v) for v in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA")]
+    for root in [r for r in win_roots if r]:
+        paths.append(os.path.join(root, "Google", "Chrome", "Application", "chrome.exe"))
+    for root in [r for r in win_roots if r]:
+        paths.append(os.path.join(root, "Microsoft", "Edge", "Application", "msedge.exe"))
+    return paths
+
+
 def find_chromium() -> str | None:
-    for name in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
+    """Find a chromium-family browser on any OS: PATH names first, then well-known locations."""
+    for name in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable",
+                 "chrome", "msedge"):
         p = shutil.which(name)
         if p:
             return p
-    for p in ("/snap/bin/chromium", "/usr/bin/chromium", "/usr/bin/chromium-browser"):
+    for p in _well_known_browsers():
         if os.path.exists(p):
             return p
     return None
@@ -172,7 +199,9 @@ def _chromium_base(chromium: str) -> list[str]:
 
 def dump_dom(chromium: str, file_url: str, timeout: int = 60) -> str:
     cmd = _chromium_base(chromium) + ["--virtual-time-budget=5000", "--dump-dom", file_url]
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    # The DOM is UTF-8 regardless of the console codepage (Windows defaults to cp1252).
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                         encoding="utf-8", errors="replace")
     return res.stdout
 
 
@@ -190,9 +219,10 @@ def screenshot(chromium: str, file_url: str, out_path: str, timeout: int = 60) -
 def cmd_run(root: str) -> int:
     chromium = find_chromium()
     if not chromium:
-        print("[infra] no chromium found (looked for chromium/google-chrome and /snap/bin/chromium).",
+        print("[infra] no chromium-family browser found (looked for chromium/chrome/msedge on "
+              "PATH and in the default Linux/Windows/macOS locations).", file=sys.stderr)
+        print("        Install Chrome, Chromium, or Edge to run the browser verification loop.",
               file=sys.stderr)
-        print("        Install chromium to run the browser verification loop.", file=sys.stderr)
         return EXIT_INFRA
 
     vdir = os.path.join(root, VERIFY_DIR)
@@ -203,16 +233,17 @@ def cmd_run(root: str) -> int:
 
     # app.js must sit next to each driver so `<script src="app.js">` resolves.
     shutil.copy2(os.path.join(root, "web", "app.js"), os.path.join(drivers, "app.js"))
-    index_src = open(os.path.join(root, "web", "index.html")).read()
+    with open(os.path.join(root, "web", "index.html"), encoding="utf-8") as fh:
+        index_src = fh.read()
 
     print(f"verify_web: driving {len(OPTIONS)} options in {os.path.basename(chromium)} (headless)\n")
     results: dict[str, dict] = {}
     overall_ok = True
     for opt in OPTIONS:
         driver_path = os.path.join(drivers, f"render-{opt}.html")
-        with open(driver_path, "w") as fh:
+        with open(driver_path, "w", encoding="utf-8") as fh:
             fh.write(build_driver(index_src, opt))
-        url = "file://" + driver_path
+        url = pathlib.Path(driver_path).as_uri()  # correct file:// form on every OS
 
         try:
             dom = dump_dom(chromium, url)
