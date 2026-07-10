@@ -28,6 +28,11 @@ const WHAT_MODELING_CHOICE = "Not an external document — a modeling choice sta
 
 const DEFAULT_MONTHLY_BILL = 168.41; // Maine DOE — CMP average residential bill @ 550 kWh (sourced)
 
+// The local agent service (service/app.py). The page must work fully without it (R7):
+// any network error, timeout, non-OK status, or structured error body -> form flow + notice.
+const SERVICE_URL = "http://127.0.0.1:8765/ask";
+const ASK_TIMEOUT_MS = 4000;
+
 // --- capital-allocation engine (mirror of src/capital.py) ------------------
 function capitalCompare({ upfrontCost, annualSavingsYear1, horizonYears = 25, opportunityRate = 0.07, escalation = 0, degradation = 0 }) {
   const rows = [];
@@ -509,11 +514,74 @@ function showNotice(msg) {
 }
 function hideNotice() { document.getElementById("notice").classList.remove("show"); }
 
-// The question box. U6 wires the agent service here; until then — and forever when the service
-// is down, over cap, or stumped — the classic form is the answer path (R7: works with zero backend).
-function askQuestion(q) {
-  fallbackToForm("The calculator agent isn’t available — answering with the classic form below. " +
-    "Open “Refine this estimate” to set the scenario by hand.");
+// The question box: ask the local agent service; degrade to the form flow on ANY failure —
+// the page is fully functional with zero backend (R7).
+async function askQuestion(q) {
+  hideNotice();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ASK_TIMEOUT_MS);
+  let payload;
+  try {
+    const res = await fetch(SERVICE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: q }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error("service returned " + res.status);
+    payload = await res.json();
+  } catch (e) {
+    return fallbackToForm("The calculator agent isn’t reachable — answering with the classic form below. " +
+      "Open “Refine this estimate” to set the scenario by hand.");
+  } finally {
+    clearTimeout(timer);
+  }
+  if (payload.error === "cap_exceeded") {
+    return fallbackToForm("The agent’s budget is used up for now — answering with the classic form below.");
+  }
+  if (payload.error === "unanswerable") {
+    return fallbackToForm("The agent couldn’t map that question to a Maine solar option — your question is " +
+      "kept above; use the classic form below.");
+  }
+  if (payload.error) {
+    return fallbackToForm("The calculator agent hit an error — answering with the classic form below.");
+  }
+  renderAgentPayload(payload);
+}
+
+// Adapt the service's CLI-shaped payload to the mirror renderer: same renderer, different data.
+function renderAgentPayload(payload) {
+  selectOptionSilently(payload.option);
+  assumptions = payload.assumptions; // same record shape: label/value/unit/tag/source/explain
+  const res = payload.result;
+  let r;
+  if (payload.option === "community") {
+    const bill = payload.inputs.monthly_bill;
+    const billInput = document.getElementById("bill");
+    billInput.value = bill;
+    billEdited = true;
+    const pill = document.getElementById("bill-tag");
+    pill.textContent = TAGS.USER_PROVIDED; pill.className = "tag tag-user";
+    r = { annualSavings: res.annual_savings, monthlySavings: res.monthly_savings, pctOff: res.pct_off, steps: payload.steps };
+  } else {
+    r = {
+      annualSavings: res.annual_savings_year1, upfrontCost: res.upfront_cost, steps: payload.steps,
+      capital: { npv: res.npv, simplePaybackYears: res.simple_payback_years, opportunityRate: res.opportunity_rate, horizonYears: res.horizon_years },
+    };
+  }
+  const note = payload.agent && payload.agent.note ? " " + payload.agent.note : "";
+  document.getElementById("statement").textContent =
+    "Answered by the calculator agent — " + OPTIONS[currentOption].describe(assumptions, readCtx()) + "." + note;
+  render(r, payload.followup);
+}
+
+// Set the six-state machine to `key` without recomputing (the agent payload carries the data).
+function selectOptionSilently(key) {
+  activeParts = new Set(key === "community" ? ["community"] : key.split("+"));
+  currentOption = stateKey();
+  syncToggles();
+  const billCard = document.getElementById("bill-row");
+  if (billCard) billCard.style.display = OPTIONS[currentOption].needsBill ? "block" : "none";
 }
 
 function fallbackToForm(message) {
@@ -536,7 +604,7 @@ function recompute() {
   render(r);
 }
 
-function render(r) {
+function render(r, followupText) {
   const el = document.getElementById("result");
   let html = `<div class="headline">`;
   if (currentOption === "community") {
@@ -587,7 +655,8 @@ function render(r) {
   html += `</div>`;
 
   // R5: after any result, invite the input that would most tighten the estimate.
-  html += `<div class="followup"><strong>Want a tighter estimate?</strong> The most valuable thing you could tell us: ${OPTIONS[currentOption].followup}.</div>`;
+  const followup = followupText || `The most valuable thing you could tell us: ${OPTIONS[currentOption].followup}.`;
+  html += `<div class="followup"><strong>Want a tighter estimate?</strong> ${followup}</div>`;
   el.innerHTML = html;
 
   el.querySelectorAll("input[data-key]").forEach((inp) => {

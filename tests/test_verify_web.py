@@ -57,6 +57,7 @@ class TestAssertRender(unittest.TestCase):
     def _clean_community(self):
         return (
             '<textarea id="question"></textarea>'
+            '<div id="notice" class="show">using the classic form</div>'
             '<div id="__probe" data-err=""></div>'
             '<div class="big">$221.40<span>/yr saved</span></div>'
             '<div class="step-label">x</div>'
@@ -65,6 +66,7 @@ class TestAssertRender(unittest.TestCase):
     def _clean_rooftop(self):
         return (
             '<textarea id="question"></textarea>'
+            '<div id="notice" class="show">using the classic form</div>'
             '<div id="__probe" data-err=""></div>'
             '<div class="big">$1,782.00</div>'
             '<div class="sub">$16,225.00 upfront · payback 9.1 yr · NPV ...</div>'
@@ -91,6 +93,11 @@ class TestAssertRender(unittest.TestCase):
         dom = '<div id="__probe" data-err=""></div><div class="step-label">x</div>'
         problems = vw.assert_render("community", dom)
         self.assertTrue(any(".big missing" in p for p in problems))
+
+    def test_missing_fallback_notice_detected(self):
+        dom = self._clean_community().replace("using the classic form", "")
+        problems = vw.assert_render("community", dom)
+        self.assertTrue(any("fallback notice" in p for p in problems))
 
     def test_capital_missing_upfront_detected(self):
         dom = (
@@ -132,6 +139,47 @@ class TestEvaluateGate(unittest.TestCase):
         ok, reasons = vw.evaluate_gate(ev, current)
         self.assertFalse(ok)
         self.assertTrue(any("stale" in r and "web/app.js" in r for r in reasons))
+
+
+class TestEvaluatePerception(unittest.TestCase):
+    """Judged verdicts from the agent perception loop: fresh fail blocks, stale is ignored."""
+
+    HASHES = {"web/index.html": "aaa", "web/app.js": "bbb"}
+
+    def _perception(self, result, hashes=None, note=""):
+        return {"states": {"community": {
+            "result": result, "file_hashes": hashes or dict(self.HASHES), "note": note,
+        }}}
+
+    def test_no_perception_record_is_fine(self):
+        self.assertEqual(vw.evaluate_perception(None, self.HASHES), [])
+
+    def test_fresh_fail_blocks_and_carries_the_note(self):
+        reasons = vw.evaluate_perception(self._perception("fail", note="headline overlaps"), self.HASHES)
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("community", reasons[0])
+        self.assertIn("headline overlaps", reasons[0])
+
+    def test_fresh_pass_clears(self):
+        self.assertEqual(vw.evaluate_perception(self._perception("pass"), self.HASHES), [])
+
+    def test_stale_fail_is_ignored(self):
+        stale = self._perception("fail", hashes={"web/index.html": "OLD", "web/app.js": "bbb"})
+        self.assertEqual(vw.evaluate_perception(stale, self.HASHES), [])
+
+    def test_later_pass_for_same_state_clears_earlier_fail(self):
+        # record() keys by state, so a later pass REPLACES the fail — modeled here as the
+        # post-replacement record evaluating clean.
+        p = self._perception("fail")
+        p["states"]["community"] = self._perception("pass")["states"]["community"]
+        self.assertEqual(vw.evaluate_perception(p, self.HASHES), [])
+
+
+class TestRecordSubcommand(unittest.TestCase):
+    def test_refuses_missing_screenshot(self):
+        code = vw.cmd_record(vw.repo_root(), "community", "fail",
+                             os.path.join("nope", "missing.png"), 0, "x")
+        self.assertEqual(code, vw.EXIT_INFRA)
 
 
 class TestFindChromium(unittest.TestCase):

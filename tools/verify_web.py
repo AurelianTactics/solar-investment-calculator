@@ -44,6 +44,9 @@ OPTIONS = ["community", "balcony", "rooftop", "battery", "battery+rooftop", "bat
 
 VERIFY_DIR = ".verify"
 EVIDENCE_PATH = os.path.join(VERIFY_DIR, "evidence.json")
+# Judged verdicts from the agent perception loop (/verify-web-page). Judgment happens during
+# evidence PRODUCTION; this file is only read (never produced) by the deterministic gate.
+PERCEPTION_PATH = os.path.join(VERIFY_DIR, "perception.json")
 
 # Exit codes (shared contract with the Stop-hook wrapper).
 EXIT_OK = 0
@@ -82,9 +85,12 @@ def file_hashes(root: str) -> dict[str, str]:
 def build_driver(index_src: str, option: str) -> str:
     """index.html with an injected shim that selects `option` after load and records JS errors.
 
-    Relies on web/app.js being a classic script, so selectOption() is a global. The shim writes a
-    `#__probe` element whose data-err carries any window error or selectOption throw, so the headless
-    DOM dump alone tells us whether the page ran cleanly.
+    Relies on web/app.js being a classic script, so selectOption() is a global. The shim also
+    disables fetch and clicks Ask, so the agent-fallback path (form flow + notice) is exercised
+    DETERMINISTICALLY — evidence never depends on whether the local service happens to be up.
+    The probe element is appended on a timeout so the fetch rejection's fallback rendering has
+    flushed; its data-err carries any window error or shim throw, so the headless DOM dump alone
+    tells us whether the page ran cleanly.
     """
     shim = (
         "<script>\n"
@@ -92,8 +98,12 @@ def build_driver(index_src: str, option: str) -> str:
         "window.addEventListener('error',function(e){window.__err=String((e&&(e.message||e.error))||'error');});\n"
         "window.addEventListener('load',function(){\n"
         "  try{ selectOption(%r); }catch(e){ window.__err='select:'+(e&&e.message||e); }\n"
-        "  var s=document.createElement('div'); s.id='__probe'; s.setAttribute('data-err',window.__err);\n"
-        "  s.setAttribute('data-opt',%r); document.body.appendChild(s);\n"
+        "  try{ window.fetch=function(){ return Promise.reject(new TypeError('verifier: service disabled')); };\n"
+        "       document.getElementById('ask').click(); }catch(e){ window.__err='ask:'+(e&&e.message||e); }\n"
+        "  setTimeout(function(){\n"
+        "    var s=document.createElement('div'); s.id='__probe'; s.setAttribute('data-err',window.__err);\n"
+        "    s.setAttribute('data-opt',%r); document.body.appendChild(s);\n"
+        "  }, 100);\n"
         "});\n"
         "</script>\n"
     ) % (option, option)
@@ -139,6 +149,9 @@ def assert_render(option: str, dom: str) -> list[str]:
     # question-first layout markers (R1): the question box must exist in every state
     if 'id="question"' not in dom:
         problems.append("question box missing (#question) — question-first layout broken")
+    # R7: the shim asked with fetch disabled, so the fallback notice must have fired
+    if "classic form" not in dom:
+        problems.append("fallback notice missing — ask-with-no-service did not degrade to the form flow")
     return problems
 
 
@@ -155,6 +168,27 @@ def evaluate_gate(evidence: dict | None, current: dict[str, str]) -> tuple[bool,
     if changed:
         reasons.append("web files changed since last verification (stale): " + ", ".join(changed))
     return (not reasons), reasons
+
+
+def evaluate_perception(perception: dict | None, current: dict[str, str]) -> list[str]:
+    """Reasons the perception record blocks the gate.
+
+    A FRESH failing verdict (its recorded hashes match the current web/ files) blocks like any
+    failing evidence: record fail -> fix -> re-run -> record pass (the fail record is history,
+    not embarrassment). Stale verdicts — pass or fail — are ignored: web/ changed since they
+    were judged, so they say nothing about the current page. No perception record at all is
+    fine; the deterministic render loop remains the hard floor.
+    """
+    if not perception:
+        return []
+    reasons: list[str] = []
+    for state, rec in sorted((perception.get("states") or {}).items()):
+        if rec.get("file_hashes") == current and rec.get("result") == "fail":
+            note = rec.get("note") or ""
+            reasons.append(f"perception verdict FAIL for '{state}'"
+                           + (f": {note}" if note else "")
+                           + " — fix, re-run the loop, then record a pass")
+    return reasons
 
 
 # --------------------------------------------------------------------------- chromium
@@ -289,26 +323,74 @@ def cmd_run(root: str) -> int:
     return EXIT_OK if overall_ok else EXIT_RUN_FAIL
 
 
-def cmd_check(root: str) -> int:
-    path = os.path.join(root, EVIDENCE_PATH)
-    evidence = None
-    if os.path.exists(path):
-        try:
-            evidence = json.load(open(path))
-        except (json.JSONDecodeError, OSError) as e:
-            print(f"[infra] could not read {EVIDENCE_PATH}: {e}", file=sys.stderr)
-            return EXIT_INFRA
+def _load_json(path: str):
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
 
-    passed, reasons = evaluate_gate(evidence, file_hashes(root))
-    if passed:
+
+def cmd_record(root: str, state: str, result: str, screenshot: str,
+               console_errors: int, note: str) -> int:
+    """Record one judged perception verdict (the avird `record` convention).
+
+    Honesty guards: the screenshot must actually exist (no verdicts about evidence that was
+    never captured), and the verdict is stamped with the current web/ hashes so it goes stale
+    the moment the page changes.
+    """
+    shot = screenshot if os.path.isabs(screenshot) else os.path.join(root, screenshot)
+    if not os.path.exists(shot) or os.path.getsize(shot) == 0:
+        print(f"[infra] refusing to record: screenshot not found or empty: {screenshot}",
+              file=sys.stderr)
+        return EXIT_INFRA
+
+    path = os.path.join(root, PERCEPTION_PATH)
+    try:
+        perception = _load_json(path) or {"states": {}}
+    except (json.JSONDecodeError, OSError):
+        perception = {"states": {}}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    perception.setdefault("states", {})[state] = {
+        "result": result,
+        "screenshot": os.path.relpath(shot, root),
+        "console_errors": console_errors,
+        "note": note,
+        "file_hashes": file_hashes(root),
+        "recorded_at": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(perception, fh, indent=2)
+    print(f"recorded: {state} -> {result}" + (f" ({note})" if note else ""))
+    return EXIT_OK
+
+
+def cmd_check(root: str) -> int:
+    try:
+        evidence = _load_json(os.path.join(root, EVIDENCE_PATH))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[infra] could not read {EVIDENCE_PATH}: {e}", file=sys.stderr)
+        return EXIT_INFRA
+    try:
+        perception = _load_json(os.path.join(root, PERCEPTION_PATH))
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[infra] could not read {PERCEPTION_PATH}: {e}", file=sys.stderr)
+        return EXIT_INFRA
+
+    current = file_hashes(root)
+    passed, reasons = evaluate_gate(evidence, current)
+    reasons += evaluate_perception(perception, current)
+    if passed and not reasons:
         return EXIT_OK
 
     print("BLOCKED: the web mirror is not verified.", file=sys.stderr)
     for r in reasons:
         print(f"  - {r}", file=sys.stderr)
     print("\n  Run the verification loop, then review the screenshots:", file=sys.stderr)
-    print("      python3 tools/verify_web.py run      (or /verify-web)", file=sys.stderr)
+    print("      python tools/verify_web.py run      (or /verify-web)", file=sys.stderr)
     print("      open .verify/screenshots/*.png", file=sys.stderr)
+    print("  For judged perception verdicts (/verify-web-page):", file=sys.stderr)
+    print("      python tools/verify_web.py record <state> --result pass|fail --screenshot PATH",
+          file=sys.stderr)
     return EXIT_BLOCK
 
 
@@ -317,6 +399,12 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("run", help="drive every option in chromium and record evidence")
     sub.add_parser("check", help="deterministic gate: pass only on fresh, passing evidence")
+    rec = sub.add_parser("record", help="record a judged perception verdict (agent loop)")
+    rec.add_argument("state", help="which page state was judged (e.g. community, battery+rooftop)")
+    rec.add_argument("--result", choices=["pass", "fail"], required=True)
+    rec.add_argument("--screenshot", required=True, help="path to the screenshot judged")
+    rec.add_argument("--console-errors", type=int, default=0)
+    rec.add_argument("--note", default="", help="finding summary (required reading on a fail)")
     args = parser.parse_args(argv)
 
     root = repo_root()
@@ -324,6 +412,9 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_run(root)
     if args.cmd == "check":
         return cmd_check(root)
+    if args.cmd == "record":
+        return cmd_record(root, args.state, args.result, args.screenshot,
+                          args.console_errors, args.note)
     return EXIT_INFRA
 
 
