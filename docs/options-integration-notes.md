@@ -111,9 +111,56 @@ Tracked in `battery-answers.md`.
 
 ---
 
+## Combined options: battery+rooftop and battery+balcony (2026-07-09)
+
+**Research pulled:** none new — the combos deliberately ship on the *components'* landed research.
+The one genuinely new economic quantity (pairing interaction) has **no** landed research, and the
+model says so out loud.
+
+**What landed** — `capital.combine()` (stream-summing engine helper), `src/combo.py` (one
+mechanism), `src/battery_rooftop.py` + `src/battery_balcony.py` (thin configs),
+`battery_rooftop_assumptions()`/`battery_balcony_assumptions()`, exercised by
+`tests/test_combo.py` and `--option battery+rooftop` / `--option battery+balcony`. Defaults:
+battery+rooftop = **$29,698** upfront, **$1,982/yr** year 1, **~15.0 yr** payback, NPV **−$2,258**
+at 7% (the battery drags a winning rooftop under water); battery+balcony = **$14,973** upfront,
+**$588.80/yr**, NPV **−$7,888**.
+
+**Design decisions that held.**
+
+1. **Stream-wise additive, not parameter-merged.** Each component keeps its own
+   escalation/degradation/horizon; `combine()` sums per-year cashflows over the longer horizon and
+   derives NPV/payback/verdict from the summed stream. NPV is additive at one rate; **payback is
+   not** — the combined 15.0 yr matches neither rooftop's 9.1 nor battery's 67.4, which is exactly
+   why payback must come from the combined stream.
+2. **Horizon honesty.** Battery cashflows stop contributing after year 10 while PV runs to 25 —
+   asserted per-year in the tests (year 11 combined == PV-only).
+3. **Key collisions resolved per-component.** Battery keys are `battery_`-prefixed in combo
+   assumption dicts (`battery_federal_itc_pct`, `battery_horizon_years`), so the two federal
+   credits and two horizons never share a knob.
+4. **The interaction slot is honest.** `battery_pv_interaction_value_per_year` defaults to 0,
+   tagged `unsourced — pending research`, and rides the battery stream (flat $/yr over battery
+   years only). Until research lands pairing economics, the combo is exactly additive.
+
+**What surprised us.**
+
+1. **The combo verdict is a teaching moment.** Rooftop alone wins (+$9,811); adding the battery
+   flips the pairing negative. The step chain shows *why* — the battery's −$12,068 stream swamps
+   the PV's gain — which is precisely the transparent answer a "should I add a battery?" shopper
+   needs.
+2. **Windows console encoding bit the CLI.** Rendering a combo's assumptions (with a `≥` in a
+   source note) crashed under cp1252; `cli.py` now degrades to replacement characters instead of
+   crashing.
+
+**What's still open (does not block the combos).** Real pairing-interaction economics
+(battery uplift to PV self-consumption under NEB) — the research repo owns that; the assumption
+slot is ready. In-horizon battery degradation remains open from the battery option.
+
+---
+
 ## Status
 
-All four roadmap options are modeled (community, balcony, rooftop, battery), each on the shared
-assumption model + (for capital options) the capital engine, each with a hand-verified worked
-example in the test suite and a `--option` CLI path. The web mirror is updated to match in the
-multi-option `web/app.js` pass.
+All six roadmap option states are modeled (community, balcony, rooftop, battery, battery+rooftop,
+battery+balcony), each on the shared assumption model + (for capital options) the capital engine,
+each with a hand-verified worked example in the test suite, a `--option` CLI path, and a mirrored
+`web/app.js` entry in the on-load parity self-check. Every assumption now carries a newcomer-grade
+`explain`, and every sourced default's source carries `what_is_it`.

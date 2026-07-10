@@ -1,4 +1,4 @@
-# Stack: Python 3 standard library (core + tests) with a static web mirror (web/).
+# Stack: Python 3 (stdlib core + web mirror; service/ deps live in a uv venv OUTSIDE the repo).
 
 # OS
 .DS_Store
