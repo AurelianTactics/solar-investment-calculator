@@ -105,8 +105,33 @@ def build_default_extractor(ledger) -> Callable[[str], Extraction]:
     return extract
 
 
-def compute_payload(extraction: Extraction) -> dict:
-    """Run the Python core for the routed option; return the CLI --json payload shape."""
+def _apply_inputs(assumptions: dict, inputs: dict) -> dict:
+    """Apply extracted values onto assumption records, tolerating battery_-prefix mismatches.
+
+    The extraction schema keys battery numbers as ``battery_usable_kwh`` (the combo namespacing),
+    but the plain battery option uses bare keys — and vice versa a model may emit a bare key for
+    a combo. Try the key, then its prefix-flipped twin. Anything still unmapped is RETURNED, not
+    silently dropped — the caller surfaces it so the answer never claims an input it didn't use.
+    """
+    ignored: dict = {}
+    for key, val in inputs.items():
+        target = key
+        if target not in assumptions:
+            flipped = key[len("battery_"):] if key.startswith("battery_") else "battery_" + key
+            target = flipped if flipped in assumptions else None
+        if target is None:
+            ignored[key] = val
+        else:
+            assumptions[target] = assumptions[target].with_user_value(val)
+    return ignored
+
+
+def compute_payload(extraction: Extraction) -> tuple[dict, dict]:
+    """Run the Python core for the routed option.
+
+    Returns ``(payload, ignored_inputs)`` — the CLI --json payload shape, plus any extracted
+    inputs that mapped to no assumption of the routed option (surfaced for honesty).
+    """
     inputs = dict(extraction.inputs)
     if extraction.option == "community":
         a = default_assumptions()
@@ -116,9 +141,7 @@ def compute_payload(extraction: Extraction) -> dict:
         else:
             bill = a["default_monthly_bill"].value
         annual_usage = inputs.pop("annual_usage_kwh", None)
-        for key, val in inputs.items():  # any other extracted community assumption
-            if key in a:
-                a[key] = a[key].with_user_value(val)
+        ignored = _apply_inputs(a, inputs)  # any other extracted community assumption
         result = solar_calc.compute(
             monthly_bill=bill,
             price_per_kwh=a["price_per_kwh"].value,
@@ -127,15 +150,13 @@ def compute_payload(extraction: Extraction) -> dict:
             allocation_pct=a["allocation_pct"].value,
             annual_usage_kwh=annual_usage,
         )
-        return json.loads(render_community_json(bill, a, result))
+        return json.loads(render_community_json(bill, a, result)), ignored
 
     module, merged = capital_spec(extraction.option)
-    for key, val in inputs.items():
-        if key in merged:
-            merged[key] = merged[key].with_user_value(val)
+    ignored = _apply_inputs(merged, inputs)
     result = module.compute_from_assumptions(merged)
     shown = CAPITAL_OPTIONS[extraction.option]["shown"]
-    return json.loads(render_capital_json(extraction.option, merged, result, shown))
+    return json.loads(render_capital_json(extraction.option, merged, result, shown)), ignored
 
 
 class Agent:
@@ -168,12 +189,13 @@ class Agent:
             if ex.unanswerable:
                 return {"error": "unanswerable"}
             try:
-                payload = compute_payload(ex)
+                payload, ignored = compute_payload(ex)
             except (ValueError, KeyError) as e:
                 return {"error": f"compute_error: {e}"}
             payload["agent"] = {
                 "model": MODEL,
                 "extracted": ex.inputs,
+                "ignored_inputs": ignored,  # extracted but unmappable — never silently dropped
                 "option": ex.option,
                 "note": ex.note,
             }

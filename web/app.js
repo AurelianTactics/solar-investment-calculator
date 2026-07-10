@@ -663,7 +663,17 @@ function render(r, followupText) {
     inp.addEventListener("change", (e) => {
       const key = e.target.getAttribute("data-key");
       const v = parseFloat(e.target.value);
-      if (!isNaN(v)) { assumptions[key] = { ...assumptions[key], value: v, tag: TAGS.USER_PROVIDED, source: null }; updateStatement(); recompute(); }
+      if (isNaN(v)) return;
+      assumptions[key] = { ...assumptions[key], value: v, tag: TAGS.USER_PROVIDED, source: null };
+      if (key === "default_monthly_bill") {
+        // Agent payloads include this row; the computed bill lives in the #bill input — keep
+        // them in lockstep so editing the row actually changes the result.
+        document.getElementById("bill").value = v;
+        billEdited = true;
+        const pill = document.getElementById("bill-tag");
+        pill.textContent = TAGS.USER_PROVIDED; pill.className = "tag tag-user";
+      }
+      updateStatement(); recompute();
     });
   });
 }

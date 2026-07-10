@@ -89,6 +89,27 @@ class TestHonestTagging:
         assert payload["assumptions"]["installed_cost_per_w"]["tag"] == "default (sourced)"
 
 
+class TestInputKeyNormalization:
+    def test_prefixed_key_maps_onto_bare_battery_option(self, tmp_path):
+        # The extraction schema says battery_usable_kwh; the plain battery option uses bare keys.
+        agent = make_agent(tmp_path, stub("battery", {"battery_usable_kwh": 20}))
+        payload = agent.answer("is a 20 kWh battery worth it?")
+        assert payload["assumptions"]["usable_kwh"]["value"] == 20.0
+        assert payload["assumptions"]["usable_kwh"]["tag"] == "user-provided"
+        assert payload["agent"]["ignored_inputs"] == {}
+
+    def test_bare_key_maps_onto_combo_prefixed_key(self, tmp_path):
+        agent = make_agent(tmp_path, stub("battery+rooftop", {"usable_kwh": 20}))
+        payload = agent.answer("rooftop with a 20 kWh battery")
+        assert payload["assumptions"]["battery_usable_kwh"]["value"] == 20.0
+
+    def test_unmappable_input_is_surfaced_not_dropped(self, tmp_path):
+        agent = make_agent(tmp_path, stub("community", {"monthly_bill": 150, "roof_pitch": 30}))
+        payload = agent.answer("q")
+        assert payload["agent"]["ignored_inputs"] == {"roof_pitch": 30}
+        assert payload["result"]["annual_savings"] > 0  # the mappable input still computed
+
+
 class TestFollowup:
     def test_response_names_the_tightening_input(self, tmp_path):
         agent = make_agent(tmp_path, stub("community", {"monthly_bill": 150}))
