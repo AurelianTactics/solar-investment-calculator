@@ -24,15 +24,53 @@ python -m http.server --directory web 8000          # then open http://localhost
 In the web UI: **ask the question box** (or click a sample prompt). If the local agent service is
 running, it routes your question and answers with the same numbers the CLI produces; if it isn't —
 or its budget is spent — the page falls back to the classic form flow with a notice, fully
-client-side. "Refine this estimate" opens the option toggles (community stands alone; battery
-pairs with rooftop or the balcony kit) and the input boxes; the headline statement rewrites into a
-plain sentence describing your scenario. Expand any assumption row for a newcomer-grade
-explanation of what the number means and what the source actually is.
+client-side. The sticky result card pins the headline number (with a context line: your scenario,
+or a caveat when the bill is still the sourced Maine average) while you scroll. "Refine this
+estimate" opens the option toggles (community stands alone; battery pairs with rooftop or the
+balcony kit), the input boxes, the calculation steps, and the assumptions ledger. Expand any
+assumption row for a newcomer-grade explanation of what the number means and what the source
+actually is.
 
 Running the agent service (optional; needs an `ANTHROPIC_API_KEY` and the uv venv):
 see [`../service/README.md`](../service/README.md).
 
 > `docs/human_to_do.md` is your private notebook — agents are told not to read it.
+
+## How the estimates work
+
+Community solar pays through Net Energy Billing: your usage generates kWh bill credits, and you buy
+those credits from the provider at a discount — the discount is the savings
+(`annual_savings = monthly_bill × 12 × bill_offset_fraction × subscription_discount_pct`).
+
+Capital options compute year-1 savings and upfront cost, then the capital engine asks the
+`STRATEGY.md` question: **are you better off buying solar, or investing that cash at the
+opportunity rate?** (NPV > 0 → solar wins.) Combos are stream-wise additive: the battery keeps its
+10-year flat stream, the PV keeps its 25-year escalating/degrading stream, and the verdict comes
+from the summed per-year cashflows.
+
+Each assumption is tagged `default (sourced)`, `user-provided`, or `unsourced — pending research`,
+carries a plain-English explanation of what it means and what moves it, and sourced defaults cite
+the research repo plus a note on what the source *is* and why it's credible.
+
+## Repo layout
+
+```
+src/
+  assumptions.py       # assumption data model (label, value, unit, tag, source, explain) + defaults
+  solar_calc.py        # community solar core (bill → usage → credits → savings) — SOURCE OF TRUTH
+  capital.py           # capital-allocation engine: compare() one stream, combine() summed streams
+  balcony.py, rooftop.py, battery.py   # per-option pure modules
+  combo.py, battery_rooftop.py, battery_balcony.py   # additive combos (one mechanism, two configs)
+  cli.py               # human + agent-native CLI surface (--json)
+service/
+  app.py, agent.py, spend.py   # LangGraph agent: question → routed, computed, capped answer
+tests/, service/tests/ # worked-example, tagging, parity, ledger, and gate tests (pytest)
+web/
+  index.html, app.js   # question-first static UI; JS formulas mirror the Python core (self-checked)
+tools/
+  verify_web.py        # evidence-backed browser verification: run / check / record
+docs/                  # strategy, plans, per-option integration notes, lessons learned
+```
 
 ## Verify it (why you can trust the number)
 

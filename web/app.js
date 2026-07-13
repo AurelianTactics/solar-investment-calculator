@@ -8,7 +8,9 @@
 // Layout contract with tools/verify_web.py: selectOption(key) stays a GLOBAL function accepting
 // all six option keys ("community", "balcony", "rooftop", "battery", "battery+rooftop",
 // "battery+balcony"); results render `.big` and `.step-label`; the question box is `#question`;
-// the fallback notice is `#notice.show`.
+// the fallback notice is `#notice.show`. The headline renders into the sticky `#result` card;
+// steps + assumptions render into `#detail` inside the "Refine this estimate" drawer; the
+// tighter-estimate tip renders into `#tip-body` under the Ask box.
 
 const TAGS = {
   DEFAULT_SOURCED: "default (sourced)",
@@ -216,7 +218,8 @@ const OPTIONS = {
     blurb: "Zero upfront capital. You subscribe to an off-site solar farm and buy its bill credits at a discount.",
     needsBill: true,
     describe: (a, ctx) => `community solar on a ${money(ctx.bill)} monthly bill — zero upfront capital, you keep the discount on the credits`,
-    followup: "your annual kWh usage (it's in your bill's usage history) — it replaces the bill→usage estimate with the real number",
+    followup: "your electricity usage in kWh — monthly or annual, it's in your bill's usage history — and who your utility is; it replaces the bill→usage estimate with the real number",
+    example: "I use 550 kWh a month with CMP — what would community solar save me?",
     defaults: () => ({
       price_per_kwh: A("price_per_kwh", "All-in residential price per kWh (CMP)", 0.306, "$/kWh", TAGS.DEFAULT_SOURCED,
         S("Maine DOE — Electricity Prices (CMP, eff. Jan 1 2026)", "https://www.maine.gov/energy/electricity-prices", "Display-only in the bill-first flow; resets each Jan 1.", WHAT_MAINE_DOE),
@@ -390,7 +393,7 @@ OPTIONS["battery+rooftop"] = {
   run: comboRun("rooftop"),
 };
 OPTIONS["battery+balcony"] = {
-  label: "Battery + Balcony Kit",
+  label: "Battery + Balcony Solar",
   blurb: "A renter-scale pairing: a plug-in kit plus a battery, combined additively — each stream keeps its own horizon and economics.",
   describe: (a) => `a ${a.capacity_kw.value} kW plug-in kit plus a ${a.battery_usable_kwh.value} kWh battery — two streams, each on its own horizon`,
   followup: "your daytime self-consumption share plus a real electrician quote — the kit's side is what earns here",
@@ -474,7 +477,6 @@ function applyState() {
   syncToggles();
   const billCard = document.getElementById("bill-row");
   if (billCard) billCard.style.display = OPTIONS[currentOption].needsBill ? "block" : "none";
-  updateStatement();
   recompute();
 }
 
@@ -492,19 +494,6 @@ function readCtx() {
   const bill = billRaw === "" ? DEFAULT_MONTHLY_BILL : parseFloat(billRaw);
   const usageRaw = document.getElementById("annual-usage").value;
   return { bill, annualUsage: usageRaw ? parseFloat(usageRaw) : null };
-}
-
-// R3: the headline statement is a plain sentence describing the current scenario.
-function updateStatement() {
-  const el = document.getElementById("statement");
-  const ctx = readCtx();
-  const opt = OPTIONS[currentOption];
-  let sentence = "Here’s the ledger for " + opt.describe(assumptions, ctx) + ".";
-  if (currentOption === "community" && !billEdited) {
-    sentence = "No details from you yet, so here’s the ledger for " + opt.describe(assumptions, ctx) +
-      " — that bill is the sourced Maine average, not yours.";
-  }
-  el.textContent = sentence;
 }
 
 function showNotice(msg) {
@@ -570,9 +559,8 @@ function renderAgentPayload(payload) {
     };
   }
   const note = payload.agent && payload.agent.note ? " " + payload.agent.note : "";
-  document.getElementById("statement").textContent =
-    "Answered by the calculator agent — " + OPTIONS[currentOption].describe(assumptions, readCtx()) + "." + note;
-  render(r, payload.followup);
+  render(r, payload.followup,
+    "Answered by the calculator agent — " + OPTIONS[currentOption].describe(assumptions, readCtx()) + "." + note);
 }
 
 // Set the six-state machine to `key` without recomputing (the agent payload carries the data).
@@ -587,7 +575,6 @@ function selectOptionSilently(key) {
 function fallbackToForm(message) {
   showNotice(message);
   document.getElementById("refine").open = true;
-  updateStatement();
   recompute();
 }
 
@@ -596,30 +583,54 @@ function recompute() {
   const ctx = readCtx();
   if (opt.needsBill && (isNaN(ctx.bill) || ctx.bill < 0)) {
     document.getElementById("result").innerHTML = "<p class='hint'>Enter a valid monthly bill (or clear the box to use the Maine average).</p>";
+    document.getElementById("detail").innerHTML = "";
     return;
   }
   let r;
   try { r = opt.run(assumptions, ctx); }
-  catch (e) { document.getElementById("result").innerHTML = `<p class='src warn'>${e.message}</p>`; return; }
+  catch (e) {
+    document.getElementById("result").innerHTML = `<p class='src warn'>${e.message}</p>`;
+    document.getElementById("detail").innerHTML = "";
+    return;
+  }
   render(r);
 }
 
-function render(r, followupText) {
-  const el = document.getElementById("result");
-  let html = `<div class="headline">`;
+function render(r, followupText, contextText) {
+  const opt = OPTIONS[currentOption];
+  const ctx = readCtx();
+
+  // Headline -> the sticky #result card, so the number stays in view while refining below.
+  let head = `<div class="headline"><p class="card-label">${opt.label} — current estimate</p>`;
   if (currentOption === "community") {
-    html += `<div class="big">${money(r.annualSavings)}<span>/yr saved</span></div>`;
-    html += `<div class="sub">${money(r.monthlySavings)}/mo · ${(r.pctOff * 100).toFixed(1)}% off · <strong>$0 upfront capital</strong></div>`;
+    head += `<div class="big">${money(r.annualSavings)}<span>/yr saved</span></div>`;
+    head += `<div class="sub">${money(r.monthlySavings)}/mo · ${(r.pctOff * 100).toFixed(1)}% off · <strong>$0 upfront capital</strong></div>`;
   } else {
     const cap = r.capital;
     const verdict = cap.npv > 0 ? "solar wins" : "the market wins";
     const pb = cap.simplePaybackYears == null ? "never" : cap.simplePaybackYears.toFixed(1) + " yr";
-    html += `<div class="big">${money(r.annualSavings)}<span>/yr (year 1)</span></div>`;
-    html += `<div class="sub">${money(r.upfrontCost)} upfront · payback ${pb} · <strong>NPV ${money(cap.npv)}</strong> (${verdict} at ${(cap.opportunityRate * 100).toFixed(0)}%)</div>`;
+    head += `<div class="big">${money(r.annualSavings)}<span>/yr (year 1)</span></div>`;
+    head += `<div class="sub">${money(r.upfrontCost)} upfront · payback ${pb} · <strong>NPV ${money(cap.npv)}</strong> (${verdict} at ${(cap.opportunityRate * 100).toFixed(0)}%)</div>`;
   }
-  html += `</div>`;
+  // One small context line: the agent's answer note, or the default-bill caveat. The context
+  // may quote user/agent text, so it is set via textContent, never innerHTML.
+  const context = contextText
+    || (currentOption === "community" && !billEdited
+        ? `That ${money(ctx.bill)}/mo bill is the sourced Maine average, not yours — edit it under “Refine this estimate.”`
+        : `For ${opt.describe(assumptions, ctx)}.`);
+  head += `<p class="context"></p></div>`;
+  document.getElementById("result").innerHTML = head;
+  document.querySelector("#result .context").textContent = context;
 
-  html += `<h3>How we got there</h3><ol class="steps">`;
+  // R5: the tighter-estimate tip lives under the Ask box, phrased as something to *ask*.
+  const tipBody = document.getElementById("tip-body");
+  tipBody.innerHTML = followupText
+    || `The most valuable thing you could tell us: ${opt.followup}.`
+      + (opt.example ? ` For example: <span class="eg">“${opt.example}”</span>` : "");
+
+  // Steps + assumptions -> #detail inside the refine drawer.
+  const el = document.getElementById("detail");
+  let html = `<h3>How we got there</h3><ol class="steps">`;
   for (const s of r.steps) {
     const shown = s.unit.startsWith("$") ? `${money(s.value)} <span class="unit">${s.unit}</span>` : `${num(s.value)} <span class="unit">${s.unit}</span>`;
     html += `<li><div class="step-label">${s.label}</div><code>${s.formula}</code><div class="step-val">= ${shown}</div></li>`;
@@ -653,10 +664,6 @@ function render(r, followupText) {
     html += `</div>`;
   }
   html += `</div>`;
-
-  // R5: after any result, invite the input that would most tighten the estimate.
-  const followup = followupText || `The most valuable thing you could tell us: ${OPTIONS[currentOption].followup}.`;
-  html += `<div class="followup"><strong>Want a tighter estimate?</strong> ${followup}</div>`;
   el.innerHTML = html;
 
   el.querySelectorAll("input[data-key]").forEach((inp) => {
@@ -673,21 +680,37 @@ function render(r, followupText) {
         const pill = document.getElementById("bill-tag");
         pill.textContent = TAGS.USER_PROVIDED; pill.className = "tag tag-user";
       }
-      updateStatement(); recompute();
+      recompute();
     });
   });
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  const bigRedBanner = (msg) => {
+    let b = document.getElementById("parity-banner");
+    if (!b) { b = document.createElement("div"); document.body.prepend(b); }
+    b.style.cssText = "display:block;background:#f5e4d4;color:#a8481c;border:1.5px solid #e2bd99;border-left:4px solid #a8481c;border-radius:10px;padding:12px 16px;margin:12px;font-weight:500;";
+    b.textContent = msg;
+  };
+
   try {
     const failed = verifyAll();
     if (failed) throw new Error(`self-check failed for the ${failed} option`);
   } catch (e) {
-    const b = document.getElementById("parity-banner");
-    b.style.display = "block";
-    b.textContent = `⚠ Formula self-check FAILED (${e.message}) — the web formula diverged from the verified Python worked example. Do not trust these numbers; use the Python CLI/tests.`;
+    bigRedBanner(`⚠ Formula self-check FAILED (${e.message}) — the web formula diverged from the verified Python worked example. Do not trust these numbers; use the Python CLI/tests.`);
   }
 
+  // Fail LOUDLY if the page skeleton and this script are out of sync (e.g. a cached app.js
+  // served with a newer index.html) — a silent init error would leave the estimate blank.
+  try {
+    initPage();
+  } catch (e) {
+    bigRedBanner(`⚠ The page failed to load (${e.message}). Hard-refresh (Ctrl+Shift+R / Ctrl+F5) — a cached copy of the calculator script may be out of sync with the page. If this persists, use the Python CLI.`);
+    throw e;
+  }
+});
+
+function initPage() {
   // question flow
   const qbox = document.getElementById("question");
   document.getElementById("ask").addEventListener("click", () => askQuestion(qbox.value));
@@ -706,18 +729,18 @@ window.addEventListener("DOMContentLoaded", () => {
     const pill = document.getElementById("bill-tag");
     pill.textContent = billEdited ? TAGS.USER_PROVIDED : TAGS.DEFAULT_SOURCED;
     pill.className = billEdited ? "tag tag-user" : "tag tag-sourced";
-    updateStatement(); recompute();
+    recompute();
   });
-  document.getElementById("annual-usage").addEventListener("input", () => { updateStatement(); recompute(); });
+  document.getElementById("annual-usage").addEventListener("input", () => { recompute(); });
   document.getElementById("reset").addEventListener("click", () => {
     assumptions = OPTIONS[currentOption].defaults();
     billInput.value = DEFAULT_MONTHLY_BILL; billEdited = false;
     document.getElementById("annual-usage").value = "";
     const pill = document.getElementById("bill-tag");
     pill.textContent = TAGS.DEFAULT_SOURCED; pill.className = "tag tag-sourced";
-    updateStatement(); recompute();
+    recompute();
   });
 
   // R2: with no user input, the default render is community at the sourced average Maine bill.
   selectOption("community");
-});
+}

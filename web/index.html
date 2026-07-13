@@ -95,10 +95,6 @@
     border:1.5px solid var(--clay-bd); border-left:4px solid var(--clay);
     border-radius:10px; padding:12px 16px; margin-bottom:18px; font-weight:500; }
 
-  /* ---- the statement line (R3: plain-sentence scenario description) ---- */
-  #statement { font-family:"Fraunces", Georgia, serif; font-style:italic; font-weight:500;
-    font-size:1.12rem; color:var(--ink-soft); margin:22px 2px 0; line-height:1.5; }
-
   /* ---- refine drawer ---- */
   details.refine { margin:18px 0 0; }
   details.refine > summary { cursor:pointer; color:var(--sun); font-weight:600; font-size:.95rem;
@@ -130,21 +126,26 @@
   .opt input { width:min(240px, 100%); }
   #bill-row { margin-top:16px; }
 
-  /* ---- result headline ---- */
-  #result { padding-top:6px; }
-  .headline { text-align:center; padding:6px 0 18px; margin-bottom:8px;
-    border-bottom:1px solid var(--rule); }
+  /* ---- result headline: sticky, so refining below always shows the number move ---- */
+  #result { position:sticky; top:10px; z-index:5; padding:14px 22px 16px;
+    border-color:var(--rule-strong);
+    box-shadow:0 1px 0 rgba(31,38,29,.04), 0 14px 34px -20px rgba(31,38,29,.5); }
+  .headline { text-align:center; padding:0; }
   .big { font-family:"Fraunces", Georgia, serif; font-weight:600;
-    font-size:clamp(2.8rem, 9vw, 4rem); line-height:1; color:var(--pine);
+    font-size:clamp(2rem, 6.5vw, 2.9rem); line-height:1; color:var(--pine);
     font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
   .big span { font-family:"Public Sans", sans-serif; font-size:1rem; color:var(--muted);
     font-weight:600; letter-spacing:.02em; margin-left:8px; }
-  .sub { color:var(--ink-soft); margin-top:10px; font-size:1rem; }
+  .sub { color:var(--ink-soft); margin-top:8px; font-size:.95rem; }
   .sub strong { color:var(--ink); }
+  .headline .card-label { margin-bottom:8px; }
+  .context { color:var(--muted); font-size:.84rem; margin-top:9px; line-height:1.5; }
+  .context em { color:var(--clay); font-style:normal; font-weight:600; }
 
   h3 { font-family:"Fraunces", Georgia, serif; font-weight:600; font-size:1.18rem;
     margin:26px 0 12px; color:var(--ink); }
   h3 .hint { font-family:"Public Sans", sans-serif; font-weight:400; }
+  #detail > h3:first-child { margin-top:0; }
 
   /* ---- the ledger of steps ---- */
   ol.steps { list-style:none; counter-reset:step; padding:0; margin:0; }
@@ -188,11 +189,12 @@
     padding:12px 15px; margin-top:8px; font-size:.9rem; line-height:1.6; color:var(--ink-soft); }
   .deep p { margin:0 0 9px; } .deep p:last-child { margin-bottom:0; }
 
-  /* ---- follow-up (R5) ---- */
+  /* ---- tighter-estimate tip (R5) — lives right under the Ask box ---- */
   .followup { background:var(--pine-bg); border:1px solid var(--pine-bd);
     border-left:4px solid var(--pine); border-radius:10px; padding:13px 16px;
-    margin-top:24px; font-size:.92rem; color:var(--ink-soft); }
+    margin-top:16px; font-size:.92rem; color:var(--ink-soft); }
   .followup strong { color:var(--pine); }
+  .followup .eg { font-style:italic; }
 
   /* ---- buttons ---- */
   button {
@@ -206,7 +208,7 @@
 
   footer { color:var(--muted); font-size:.82rem; line-height:1.6; margin-top:34px;
     padding-top:18px; border-top:3px double var(--rule-strong); }
-  footer code { font-size:.76rem; padding:1px 6px; background:var(--paper-2); }
+  footer a { color:var(--sky); text-underline-offset:2px; }
   footer em { color:var(--clay); font-style:normal; font-weight:600; }
 </style>
 </head>
@@ -230,24 +232,28 @@
     <div class="samples" aria-label="Sample questions">
       <button class="sample" type="button">What if I put solar panels on my roof?</button>
       <button class="sample" type="button">Is a home battery worth it with rooftop solar?</button>
-      <button class="sample" type="button">I rent — what can a plug-in balcony kit save me?</button>
+      <button class="sample" type="button">I rent — what can plug-in balcony solar save me?</button>
     </div>
+    <div class="followup" id="tip"><strong>Want a tighter estimate?</strong> <span id="tip-body">The
+      most valuable thing you could tell us: your electricity usage in kWh — monthly or annual,
+      it's in your bill's usage history — and who your utility is. For example:
+      <span class="eg">“I use 550 kWh a month with CMP — what would community solar save me?”</span></span></div>
     <div id="notice" role="status"></div>
   </div>
 
-  <p id="statement"></p>
+  <div class="card" id="result"></div>
 
   <details class="refine" id="refine">
-    <summary>Refine this estimate</summary>
+    <summary>Refine this estimate — options, every step, every assumption</summary>
     <div class="refine-body">
       <label>Which option (or pairing)?</label>
       <div class="toggles" role="group" aria-label="Solar options">
         <button class="toggle" type="button" data-part="community">Community</button>
-        <button class="toggle" type="button" data-part="balcony">Balcony kit</button>
+        <button class="toggle" type="button" data-part="balcony">Balcony solar</button>
         <button class="toggle" type="button" data-part="rooftop">Rooftop</button>
         <button class="toggle" type="button" data-part="battery">Battery</button>
       </div>
-      <p class="hint toggle-hint">Battery pairs with rooftop or the balcony kit. Community solar
+      <p class="hint toggle-hint">Battery pairs with rooftop or balcony solar. Community solar
         stands alone, and rooftop + balcony isn’t offered (one PV system at a time).</p>
 
       <div class="billrow" id="bill-row">
@@ -266,20 +272,19 @@
         ledger below — expand a row to see what it means and where it comes from.</p>
       <button id="reset" type="button">↺ Reset assumptions to defaults</button>
     </div>
+    <div class="card" id="detail"></div>
   </details>
 
-  <div class="card" id="result"></div>
-
   <footer>
-    Calculation core of record: the Python modules in <code>src/</code> (community:
-    <code>solar_calc.py</code>, plus <code>capital.py</code>, <code>balcony.py</code>,
-    <code>rooftop.py</code>, <code>battery.py</code>, and the combos in <code>combo.py</code>),
-    tested by <code>tests/</code>. This page's formulas are a mirror with an on-load self-check for
-    every option — including battery + rooftop and battery + balcony. Defaults are CMP/Maine values
-    sourced from the research repo; edit any to fit your situation. Anything tagged
-    <em>unsourced — pending research</em> should not be treated as established fact.
+    Defaults are values sourced from
+    <a href="https://github.com/AurelianTactics/solar-investment-research">this repo</a>.
+    Edit any to fit your situation. Anything tagged <em>unsourced — pending research</em> should
+    not be treated as established fact. Code available
+    <a href="https://github.com/AurelianTactics/solar-investment-calculator">here</a>.
   </footer>
 </div>
-<script src="app.js"></script>
+<!-- Bump ?v= whenever app.js changes: it keeps a cached script from being served with a newer
+     page skeleton (the mismatch renders no estimate; app.js also fails loudly if it happens). -->
+<script src="app.js?v=3"></script>
 </body>
 </html>
