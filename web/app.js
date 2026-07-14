@@ -432,6 +432,7 @@ function verifyAll() {
 
 // --- rendering -------------------------------------------------------------
 const money = (x) => "$" + x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money0 = (x) => "$" + x.toLocaleString("en-US", { maximumFractionDigits: 0 });
 const num = (x) => x.toLocaleString("en-US", { maximumFractionDigits: 0 });
 function tagClass(tag) { return tag === TAGS.UNSOURCED ? "tag tag-unsourced" : tag === TAGS.USER_PROVIDED ? "tag tag-user" : "tag tag-sourced"; }
 
@@ -608,9 +609,11 @@ function render(r, followupText, contextText) {
   } else {
     const cap = r.capital;
     const verdict = cap.npv > 0 ? "solar wins" : "the market wins";
-    const pb = cap.simplePaybackYears == null ? "never" : cap.simplePaybackYears.toFixed(1) + " yr";
+    const pb = cap.simplePaybackYears == null ? "never" : cap.simplePaybackYears.toFixed(1) + " years";
+    const ratePct = (cap.opportunityRate * 100).toFixed(0);
     head += `<div class="big">${money(r.annualSavings)}<span>/yr (year 1)</span></div>`;
-    head += `<div class="sub">${money(r.upfrontCost)} upfront · payback ${pb} · <strong>NPV ${money(cap.npv)}</strong> (${verdict} at ${(cap.opportunityRate * 100).toFixed(0)}%)</div>`;
+    head += `<div class="sub">${money(r.upfrontCost)} upfront · <strong>payback ${pb}</strong> · NPV: ${money0(cap.npv)} (${ratePct}% discount rate) <button type="button" class="npv-what" aria-expanded="false">what’s NPV?</button></div>`;
+    head += `<div class="npv-def" hidden>Net present value: all ${cap.horizonYears} years of projected savings converted into today’s dollars at the ${ratePct}% discount rate, minus the upfront cost. Above $0 means buying solar beats investing the same cash at ${ratePct}% — here, ${verdict}.</div>`;
   }
   // One small context line: the agent's answer note, or the default-bill caveat. The context
   // may quote user/agent text, so it is set via textContent, never innerHTML.
@@ -621,6 +624,12 @@ function render(r, followupText, contextText) {
   head += `<p class="context"></p></div>`;
   document.getElementById("result").innerHTML = head;
   document.querySelector("#result .context").textContent = context;
+  const npvBtn = document.querySelector("#result .npv-what");
+  if (npvBtn) npvBtn.addEventListener("click", () => {
+    const def = document.querySelector("#result .npv-def");
+    def.hidden = !def.hidden;
+    npvBtn.setAttribute("aria-expanded", String(!def.hidden));
+  });
 
   // R5: the tighter-estimate tip lives under the Ask box, phrased as something to *ask*.
   const tipBody = document.getElementById("tip-body");
@@ -637,7 +646,7 @@ function render(r, followupText, contextText) {
   }
   if (currentOption !== "community") {
     const cap = r.capital;
-    html += `<li><div class="step-label">Capital verdict (vs. ${(cap.opportunityRate * 100).toFixed(0)}% opportunity cost)</div><code>NPV = −upfront + Σ savings_t ÷ (1+r)^t</code><div class="step-val">= ${money(cap.npv)} <span class="unit">${cap.npv > 0 ? "solar wins" : "market wins"}, ${cap.horizonYears}-yr horizon</span></div></li>`;
+    html += `<li><div class="step-label">Capital verdict (vs. ${(cap.opportunityRate * 100).toFixed(0)}% opportunity cost)</div><code>NPV = −upfront + Σ savings_t ÷ (1+r)^t</code><div class="step-val">= ${money0(cap.npv)} <span class="unit">${cap.npv > 0 ? "solar wins" : "market wins"}, ${cap.horizonYears}-yr horizon</span></div></li>`;
   }
   html += `</ol>`;
 

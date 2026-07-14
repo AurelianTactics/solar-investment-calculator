@@ -10,16 +10,88 @@
         is the usage correct? no un venv mentioned?
 
 # Fixes
+
+* TEST better metric ideas:
+    * bold the payback in years
+    * have the NPV value rounded to the nearest dollar and be NPV: $x (7% discount rate)
+
+
+# To do
+* have the actual options compared side by side as built up or a button for this
+    * maybe a save option
+    * need to verify within the options and cost of capital first
+* wiki updates
+    * research the length of battery storage, 10 years seems too short
+        * started in the wiki
+    * more research DER batters and using peak versus non-pea
+        * see wiki results
+    * review updated wiki, see if any fixes need to be put into this
+    * for CMP, the peak versus not peak usage part
+    * I think the pricing on batteries isn't great. just one articla on Tesla powerwall
+    * NEB article is form 2024 and might not be accurate now
+    * https://www.maine.gov/energy/electricity-prices was updated on 7/1
+
+* other  maybe quick fixes ideas
+    * disclaimer as POC
+        add this part to the bottom of the page and have a disclaimer that this is a proof of concept "Ask a plain question, get a fact-checkable answer. Every number below is a labeled, editable, sourced assumption — never a black box."
+    * when editing the options, have it turn back into text. Maybe carry that text down like what is being shown with the rate of return stuff
+
+* feedback from users into the self improvement loop
+* Railway deploy
+
+* DONE with batteries with some of the mixed things
+    * what combinations make sense?
+        * stand alone batteries, rooftop solar, balcony solar
+        * batteries with balcony
+        * batteries with rooftop
+
+
+
+
+
+# Backlog
+* MCP / way for other agents to access the tool and data
+* leasing / non purchase for batteries and rooftop solar and what that means return wise
+* power purchase agreements
+* add more states
+* be able to validate with mroe power bill examples
+* commercial
+* regular updates of sources
+    * like https://www.maine.gov/energy/electricity-prices was updated on 7/1 . how to periodically check for key things?
+* regular tidying up of repo
+* need to thing through how I present the financial argument
+    * for sure non interest and discount payback return
+    * maybe "if I had invested this money, what percent return would I need for equivalent savings"
+    * thinking maybe a click through and show all the financial parts to it, NPV, IRR etc.
+    * first one
+* links to learning about / resources for understanding
+* agent native
+* ug, this website is stil way too fucking busy
+
+# Done
+
+* DONE initial review
+    DONE run tests
+    DONE basic CLI usage
+    DONE basic web usage
+
+    DONE how does it work
+        rooftop
+        balcony
+        community
+    DONE see if accurate
+        understand the parts
+    DONE better UI / can validate
+
+
 * DONE last fix broke it, can't see the actual value now
 
-* TEST balcony solar
+* DONE balcony solar
     * change "balcony kit" to balcony solar.
     * how does this work "Annual production per kW (Maine)" when you adjust the size of the array?
     * explain what this means? $400.00 upfront · payback 3.1 yr · NPV $1,493.51 (solar wins at 7%)
 
-* better metric ideas:
-    * bold the payback in years
-    * have the NPV value rounded to the nearest dollar and be NPV: $x (7% discount rate)
+
 
 * DONE more fixes
     * The README.md is not helpful. Like this website, in order to use the full text box, needs the agent thing to run which is not mentioned. Move all the .cli crap to some progressive disclosure doc, just one line and usage is needed in the readme
@@ -61,62 +133,3 @@
 * DONE I love the assumptions and the more details. I love the sources. However I think there needs to be the quick summary explanations shown (those look good that you have) but on mouse over / explain more need more detail. Like the "Share of your usage the subscription is sized to cover" like for someone new to community solar that's rough
 
 * DONE need an actual name for the site
-
-
-# To do
-* research the length of battery storage, 10 years seems too short
-* disclaimer as POC
-* have the actual options compared side by side as built up or a button for this
-    * maybe a save option
-    * need to verify within the options and cost of capital first
-* when editing hte options, ahve it turn back into text in the text box (or maybe an optional, hey this is what is being asked)
-* review updated wiki, see if any fixes need to be put into this
-* Railway deploy
-* https://www.maine.gov/energy/electricity-prices was updated on 7/1
-* with batteries with some of the mixed things
-    * what combinations make sense?
-        * stand alone batteries, rooftop solar, balcony solar
-        * batteries with balcony
-        * batteries with rooftop
-* agent native
-* feedback from users into the self improvement loop
-* links to learning about / resources for understanding
-* for CMP, the peak versus not peak usage part
-* more research DER batters and using peak versus non-peak
-* confirm how NPV is being used and if is this is the ideal calculation versus IRR or years until return
-* I think the pricing on batteries isn't great. just one articla on Tesla powerwall
-* NEB article is form 2024 and might not be accurate now
-* ug, this website is stil way too fucking busy
-
-
-# Backlog
-* kind of 
-* MCP / way for other agents to access the tool and data
-* leasing / non purchase for batteries and rooftop solar and what that means return wise
-* power purchase agreements
-* add more states
-* be able to validate with mroe power bill examples
-* commercial
-* regular updates of sources
-    * like https://www.maine.gov/energy/electricity-prices was updated on 7/1 . how to periodically check for key things?
-* regular tidying up of repo
-* need to thing through how I present the financial argument
-    * for sure non interest and discount payback return
-    * maybe "if I had invested this money, what percent return would I need for equivalent savings"
-    * thinking maybe a click through and show all the financial parts to it, NPV, IRR etc.
-    * first one
-
-# Done
-
-* DONE initial review
-    DONE run tests
-    DONE basic CLI usage
-    DONE basic web usage
-
-    DONE how does it work
-        rooftop
-        balcony
-        community
-    DONE see if accurate
-        understand the parts
-    DONE better UI / can validate
