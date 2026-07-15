@@ -1,6 +1,9 @@
 # Working
-* TEST have the actual options compared side by side as built up or a button for this
-* TEST when you click on a default option it doesn't work if the LLM is down. why?
+* DONE have the actual options compared side by side as built up or a button for this
+* DONE when you click on a default option it doesn't work if the LLM is down. why?
+
+* when doing comparison side by side can't edit all the options
+    * need like a header then can look at the side by side
 
 * validate updated version
     DONE run tests pytest tests
