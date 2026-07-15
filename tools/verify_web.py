@@ -41,6 +41,9 @@ WEB_FILES = ["web/index.html", "web/app.js"]
 
 # Options the page exposes (mirror of the OPTIONS registry in web/app.js) — all six R4 states.
 OPTIONS = ["community", "balcony", "rooftop", "battery", "battery+rooftop", "battery+balcony"]
+# Page states the browser loop drives: every option, plus the side-by-side comparison view
+# (entered via the global selectCompare(); its focused row renders the normal ledger).
+STATES = OPTIONS + ["compare"]
 
 VERIFY_DIR = ".verify"
 EVIDENCE_PATH = os.path.join(VERIFY_DIR, "evidence.json")
@@ -82,31 +85,38 @@ def file_hashes(root: str) -> dict[str, str]:
     return out
 
 
-def build_driver(index_src: str, option: str) -> str:
-    """index.html with an injected shim that selects `option` after load and records JS errors.
+def build_driver(index_src: str, state: str) -> str:
+    """index.html with an injected shim that drives `state` after load and records JS errors.
 
-    Relies on web/app.js being a classic script, so selectOption() is a global. The shim also
-    disables fetch and clicks Ask, so the agent-fallback path (form flow + notice) is exercised
+    Relies on web/app.js being a classic script, so selectOption()/selectCompare() are globals.
+    The shim disables fetch and clicks Ask, so the agent-fallback path is exercised
     DETERMINISTICALLY — evidence never depends on whether the local service happens to be up.
-    The probe element is appended on a timeout so the fetch rejection's fallback rendering has
-    flushed; its data-err carries any window error or shim throw, so the headless DOM dump alone
+    ORDER MATTERS: the fallback now locally ANSWERS the asked question (it re-routes the view to
+    whatever the default question says), so Ask fires first and the state under test is selected
+    on a later timer, after the fetch rejection's microtask fallback has rendered. The notice
+    stays visible across selection, so both the fallback and the state are asserted from one DOM.
+    The probe's data-err carries any window error or shim throw, so the headless DOM dump alone
     tells us whether the page ran cleanly.
     """
+    select_js = ("selectCompare(['balcony','community']);" if state == "compare"
+                 else "selectOption(%r);" % state)
     shim = (
         "<script>\n"
         "window.__err='';\n"
         "window.addEventListener('error',function(e){window.__err=String((e&&(e.message||e.error))||'error');});\n"
         "window.addEventListener('load',function(){\n"
-        "  try{ selectOption(%r); }catch(e){ window.__err='select:'+(e&&e.message||e); }\n"
         "  try{ window.fetch=function(){ return Promise.reject(new TypeError('verifier: service disabled')); };\n"
         "       document.getElementById('ask').click(); }catch(e){ window.__err='ask:'+(e&&e.message||e); }\n"
         "  setTimeout(function(){\n"
+        "    try{ %s }catch(e){ window.__err='select:'+(e&&e.message||e); }\n"
+        "  }, 60);\n"
+        "  setTimeout(function(){\n"
         "    var s=document.createElement('div'); s.id='__probe'; s.setAttribute('data-err',window.__err);\n"
         "    s.setAttribute('data-opt',%r); document.body.appendChild(s);\n"
-        "  }, 100);\n"
+        "  }, 160);\n"
         "});\n"
         "</script>\n"
-    ) % (option, option)
+    ) % (select_js, state)
     if "</body>" in index_src:
         return index_src.replace("</body>", shim + "</body>", 1)
     return index_src + shim
@@ -127,31 +137,42 @@ def probe_error(dom: str) -> str:
     return dom[j:k] if k != -1 else ""
 
 
-def assert_render(option: str, dom: str) -> list[str]:
-    """Return a list of problems found in the dumped DOM for `option` ([] == clean)."""
+def assert_render(state: str, dom: str) -> list[str]:
+    """Return a list of problems found in the dumped DOM for `state` ([] == clean)."""
     problems: list[str] = []
     if "self-check FAILED" in dom:
         problems.append("parity self-check FAILED (web formula diverged from the Python worked example)")
     err = probe_error(dom)
     if err:
         problems.append(f"JS error: {err}")
-    if 'class="big"' not in dom:
-        problems.append("no headline figure rendered (.big missing) — result did not compute")
-    if 'class="step-label"' not in dom:
-        problems.append("no calculation steps rendered (.step-label missing)")
-    # option-specific marker that the right branch of render() ran
-    if option == "community":
-        if "saved" not in dom:
-            problems.append("community headline missing '/yr saved' suffix")
+    if state == "compare":
+        # comparison view: the table renders, both rows are present, the focused row's ledger shows
+        if 'class="cmp-table"' not in dom:
+            problems.append("comparison table missing (.cmp-table) — selectCompare did not render")
+        for label in ("Balcony", "Community"):
+            if label not in dom:
+                problems.append(f"comparison row missing: {label}")
+        if 'class="step-label"' not in dom:
+            problems.append("focused row's ledger missing (.step-label) — compare detail did not render")
     else:
-        if "upfront" not in dom:
-            problems.append(f"{option} headline missing 'upfront' / NPV verdict line")
+        if 'class="big"' not in dom:
+            problems.append("no headline figure rendered (.big missing) — result did not compute")
+        if 'class="step-label"' not in dom:
+            problems.append("no calculation steps rendered (.step-label missing)")
+        # option-specific marker that the right branch of render() ran
+        if state == "community":
+            if "saved" not in dom:
+                problems.append("community headline missing '/yr saved' suffix")
+        else:
+            if "upfront" not in dom:
+                problems.append(f"{state} headline missing 'upfront' / NPV verdict line")
     # question-first layout markers (R1): the question box must exist in every state
     if 'id="question"' not in dom:
         problems.append("question box missing (#question) — question-first layout broken")
-    # R7: the shim asked with fetch disabled, so the fallback notice must have fired
-    if "classic form" not in dom:
-        problems.append("fallback notice missing — ask-with-no-service did not degrade to the form flow")
+    # R7: the shim asked with fetch disabled, so the no-agent fallback must have fired
+    # (every fallback notice — parsed local answer or classic form — contains this marker)
+    if "without the agent" not in dom:
+        problems.append("fallback notice missing — ask-with-no-service did not degrade to the no-agent flow")
     return problems
 
 
@@ -273,10 +294,10 @@ def cmd_run(root: str) -> int:
     with open(os.path.join(root, "web", "index.html"), encoding="utf-8") as fh:
         index_src = fh.read()
 
-    print(f"verify_web: driving {len(OPTIONS)} options in {os.path.basename(chromium)} (headless)\n")
+    print(f"verify_web: driving {len(STATES)} states in {os.path.basename(chromium)} (headless)\n")
     results: dict[str, dict] = {}
     overall_ok = True
-    for opt in OPTIONS:
+    for opt in STATES:
         driver_path = os.path.join(drivers, f"render-{opt}.html")
         with open(driver_path, "w", encoding="utf-8") as fh:
             fh.write(build_driver(index_src, opt))

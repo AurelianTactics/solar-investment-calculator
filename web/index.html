@@ -149,6 +149,30 @@
   .context { color:var(--muted); font-size:.84rem; margin-top:9px; line-height:1.5; }
   .context em { color:var(--clay); font-style:normal; font-weight:600; }
 
+  /* ---- side-by-side comparison (live view: rows recompute from the shared inputs) ---- */
+  .cmp-wrap { overflow-x:auto; margin-top:4px; }
+  table.cmp-table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  .cmp-table th { font:600 11px/1.3 "Public Sans", sans-serif; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--muted); text-align:right; padding:6px 10px;
+    border-bottom:2px solid var(--rule-strong); white-space:nowrap; }
+  .cmp-table th:first-child { text-align:left; }
+  .cmp-table td { padding:9px 10px; border-bottom:1px solid var(--rule); text-align:right;
+    font:500 .88rem "IBM Plex Mono", monospace; white-space:nowrap; }
+  .cmp-table td.opt-name { text-align:left; font:600 .9rem "Public Sans", sans-serif;
+    color:var(--ink); white-space:normal; }
+  .cmp-table tbody tr { cursor:pointer; }
+  .cmp-table tbody tr:hover td { background:var(--paper-2); }
+  .cmp-table tbody tr.focus td { background:var(--pine-bg); }
+  .cmp-pos { color:var(--pine); font-weight:600; }
+  .cmp-neg { color:var(--clay); font-weight:600; }
+  .cmp-err { color:var(--clay); font-family:"Public Sans", sans-serif; white-space:normal; }
+  .cmp-mark { color:var(--sky); font-size:.85em; }
+  .cmp-note { text-align:left; }
+  button.cmp-exit { background:none; border:none; color:var(--sun); cursor:pointer;
+    font:600 .82rem "Public Sans", sans-serif; padding:0; margin-top:10px;
+    text-decoration:underline dotted; text-underline-offset:3px; }
+  button.cmp-exit:hover { transform:none; box-shadow:none; }
+
   h3 { font-family:"Fraunces", Georgia, serif; font-weight:600; font-size:1.18rem;
     margin:26px 0 12px; color:var(--ink); }
   h3 .hint { font-family:"Public Sans", sans-serif; font-weight:400; }
@@ -240,6 +264,7 @@
       <button class="sample" type="button">What if I put solar panels on my roof?</button>
       <button class="sample" type="button">Is a home battery worth it with rooftop solar?</button>
       <button class="sample" type="button">I rent — what can plug-in balcony solar save me?</button>
+      <button class="sample" type="button">Compare balcony solar to community solar</button>
     </div>
     <div class="followup" id="tip"><strong>Want a tighter estimate?</strong> <span id="tip-body">The
       most valuable thing you could tell us: your electricity usage in kWh — monthly or annual,
@@ -292,6 +317,6 @@
 </div>
 <!-- Bump ?v= whenever app.js changes: it keeps a cached script from being served with a newer
      page skeleton (the mismatch renders no estimate; app.js also fails loudly if it happens). -->
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

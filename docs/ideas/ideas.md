@@ -1,4 +1,7 @@
 # Working
+* TEST have the actual options compared side by side as built up or a button for this
+* TEST when you click on a default option it doesn't work if the LLM is down. why?
+
 * validate updated version
     DONE run tests pytest tests
     DONE basic web usage python -m http.server --directory web 8000     # then visit http://localhost:8000
@@ -11,15 +14,9 @@
 
 # Fixes
 
-* TEST better metric ideas:
-    * bold the payback in years
-    * have the NPV value rounded to the nearest dollar and be NPV: $x (7% discount rate)
-
 
 # To do
-* have the actual options compared side by side as built up or a button for this
-    * maybe a save option
-    * need to verify within the options and cost of capital first
+
 * wiki updates
     * research the length of battery storage, 10 years seems too short
         * started in the wiki
@@ -31,26 +28,36 @@
     * NEB article is form 2024 and might not be accurate now
     * https://www.maine.gov/energy/electricity-prices was updated on 7/1
 
-* other  maybe quick fixes ideas
-    * disclaimer as POC
-        add this part to the bottom of the page and have a disclaimer that this is a proof of concept "Ask a plain question, get a fact-checkable answer. Every number below is a labeled, editable, sourced assumption — never a black box."
-    * when editing the options, have it turn back into text. Maybe carry that text down like what is being shown with the rate of return stuff
+* plan this out:
+    * i'm not a huge fan of the layout, color scheme, text blobs etc. get a few different ideas for this
+    * other  maybe quick fixes ideas
+        * disclaimer as POC
+            add this part to the bottom of the page and have a disclaimer that this is a proof of concept "Ask a plain question, get a fact-checkable answer. Every number below is a labeled, editable, sourced assumption — never a black box."
+        * when editing the options, have it turn back into text. Maybe carry that text down like what is being shown with the rate of return stuff
 
-* feedback from users into the self improvement loop
-* Railway deploy
+    * feedback from users into the self improvement loop
+    * Railway deploy
+    * MCP / way for other agents to access the tool and data
 
-* DONE with batteries with some of the mixed things
-    * what combinations make sense?
-        * stand alone batteries, rooftop solar, balcony solar
-        * batteries with balcony
-        * batteries with rooftop
+    Let's plan out the rest of the things I want to finish up before I close out this POC:
+        * I am not a huge fan of the layout, color scheme and many of the text blobs. Let's try 3 different layouts and I can see what sticks. This still seems too busy, too many different font sizes, bold / italics, colors etc. Seems somehow too busy and yet when flourishes or touches are added that are useful/needed them seem ugly.
+        * Let's add a disclaimer at the bottom of the page that this is a POC.
+        * remove this part "Ask a plain question, get a fact-checkable answer. Every number below is a labeled, editable, sourced assumption — never a black box."
+        * when editing the options, have it turn back into text. Maybe carry that text down like what is being shown with the rate of return stuff
+            * Is there a way to then kind of cache this so don't need the LLM to interpret?
+        * Railway deploy
+        * feedback from users into a self improvement loop (we'll have to talk about this more)
+        * Deploy this as an MCP or other tool that agents can get access to the data and the process
+
+
+
 
 
 
 
 
 # Backlog
-* MCP / way for other agents to access the tool and data
+
 * leasing / non purchase for batteries and rooftop solar and what that means return wise
 * power purchase agreements
 * add more states
@@ -69,7 +76,15 @@
 * ug, this website is stil way too fucking busy
 
 # Done
+* DONE better metric ideas:
+    * bold the payback in years
+    * have the NPV value rounded to the nearest dollar and be NPV: $x (7% discount rate)
 
+* DONE with batteries with some of the mixed things
+    * what combinations make sense?
+        * stand alone batteries, rooftop solar, balcony solar
+        * batteries with balcony
+        * batteries with rooftop
 * DONE initial review
     DONE run tests
     DONE basic CLI usage

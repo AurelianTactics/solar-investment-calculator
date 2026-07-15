@@ -7,10 +7,12 @@
 //
 // Layout contract with tools/verify_web.py: selectOption(key) stays a GLOBAL function accepting
 // all six option keys ("community", "balcony", "rooftop", "battery", "battery+rooftop",
-// "battery+balcony"); results render `.big` and `.step-label`; the question box is `#question`;
-// the fallback notice is `#notice.show`. The headline renders into the sticky `#result` card;
-// steps + assumptions render into `#detail` inside the "Refine this estimate" drawer; the
-// tighter-estimate tip renders into `#tip-body` under the Ask box.
+// "battery+balcony"); selectCompare(keys) stays a GLOBAL entering the side-by-side comparison
+// view (renders `.cmp-table`; the focused row's ledger renders `.step-label` into #detail);
+// results render `.big` and `.step-label`; the question box is `#question`; the fallback notice
+// is `#notice.show` and its text always contains "without the agent". The headline renders into
+// the sticky `#result` card; steps + assumptions render into `#detail` inside the "Refine this
+// estimate" drawer; the tighter-estimate tip renders into `#tip-body` under the Ask box.
 
 const TAGS = {
   DEFAULT_SOURCED: "default (sourced)",
@@ -444,6 +446,15 @@ let currentOption = "community";
 let assumptions = OPTIONS.community.defaults();
 let billEdited = false;
 
+// Comparison mode: null = single-option view; otherwise the ordered option keys being compared.
+// Each compared option keeps its OWN assumptions dict; the shared inputs (#bill, #annual-usage)
+// drive every row live at render time — rows are recomputed views, never saved snapshots, so
+// they can't go stale against each other.
+let compareKeys = null;
+let compareAssumptions = null;
+
+function exitCompare() { compareKeys = null; compareAssumptions = null; }
+
 function stateKey() {
   if (activeParts.has("community")) return "community";
   const hasBattery = activeParts.has("battery");
@@ -453,6 +464,12 @@ function stateKey() {
 }
 
 function toggleOption(part) {
+  if (compareKeys) {              // clicking a toggle exits comparison into that single option
+    exitCompare();
+    activeParts = new Set([part]);
+    applyState();
+    return;
+  }
   if (part === "community") {
     activeParts = new Set(["community"]);
   } else if (activeParts.has(part)) {
@@ -468,8 +485,24 @@ function toggleOption(part) {
 }
 
 function selectOption(key) {  // GLOBAL — the deterministic verifier's driver contract
+  exitCompare();
   activeParts = new Set(key === "community" ? ["community"] : key.split("+"));
   applyState();
+}
+
+// GLOBAL (verifier contract) — enter the side-by-side comparison view over 2+ option keys.
+// Every row recomputes live from the shared inputs; clicking a row focuses its full ledger
+// (steps + assumptions) in the refine drawer, where edits apply to that row only.
+function selectCompare(keys, focusKey) {
+  compareKeys = keys.slice();
+  compareAssumptions = {};
+  for (const k of compareKeys) compareAssumptions[k] = OPTIONS[k].defaults();
+  currentOption = focusKey || compareKeys[0];
+  assumptions = compareAssumptions[currentOption];
+  syncToggles();
+  const billCard = document.getElementById("bill-row");
+  if (billCard) billCard.style.display = compareKeys.some((k) => OPTIONS[k].needsBill) ? "block" : "none";
+  recompute();
 }
 
 function applyState() {
@@ -484,7 +517,7 @@ function applyState() {
 function syncToggles() {
   document.querySelectorAll("button.toggle").forEach((btn) => {
     const part = btn.getAttribute("data-part");
-    const on = activeParts.has(part);
+    const on = !compareKeys && activeParts.has(part);
     btn.classList.toggle("active", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
   });
@@ -504,10 +537,125 @@ function showNotice(msg) {
 }
 function hideNotice() { document.getElementById("notice").classList.remove("show"); }
 
-// The question box: ask the local agent service; degrade to the form flow on ANY failure —
-// the page is fully functional with zero backend (R7).
+// --- local question parsing (no LLM) ----------------------------------------
+// A deliberately simple keyword/number reader used (a) whenever the agent service fails —
+// unreachable, over budget, errored — so asking still ANSWERS instead of just apologizing,
+// and (b) always for comparison questions, which the one-option service can't express.
+// Extracted inputs are applied and surfaced in the notice, never silently dropped
+// (docs/solutions: extracted inputs must be applied or surfaced).
+const ALL_OPTION_KEYS = ["community", "balcony", "rooftop", "battery", "battery+rooftop", "battery+balcony"];
+
+function parseQuestionLocally(q) {
+  const s = (q || "").toLowerCase();
+
+  // Which options are named, in the order the question names them.
+  const found = [];
+  const probe = (key, re) => { const i = s.search(re); if (i !== -1) found.push({ key, i }); };
+  probe("community", /\bcommunity\b/);
+  probe("balcony", /balcony|plug[\s-]?in/);
+  probe("rooftop", /\broof/);
+  probe("battery", /batter|powerwall|\bstorage\b/);
+  found.sort((a, b) => a.i - b.i);
+  const parts = found.map((f) => f.key);
+
+  const compareWord = /compar|\bversus\b|\bvs\b|side[\s-]by[\s-]side/.test(s);
+  const compareAll = compareWord && /\ball\b|\bevery\b|\bsix\b/.test(s);
+
+  // Usage: "550 kWh a month" -> annualized; unit-less small numbers read as monthly.
+  let annualUsage = null;
+  const um = s.match(/([\d,]+(?:\.\d+)?)\s*kwh(?:\s*(?:a|per|\/|each)?\s*(month|mo\b|year|yr|annually|annum))?/);
+  if (um) {
+    const v = parseFloat(um[1].replace(/,/g, ""));
+    const unit = um[2] || "";
+    annualUsage = /month|mo/.test(unit) ? v * 12 : unit ? v : v < 2000 ? v * 12 : v;
+  }
+
+  // Bill: "$150", "bill is 150"; "a year" after the number -> monthlyized.
+  let bill = null;
+  const bm = s.match(/\$\s*([\d,]+(?:\.\d+)?)/) || s.match(/bill\s*(?:is|of|around|about|:)?\s*([\d,]+(?:\.\d+)?)/);
+  if (bm) {
+    bill = parseFloat(bm[1].replace(/,/g, ""));
+    const after = s.slice(bm.index + bm[0].length, bm.index + bm[0].length + 16);
+    if (/(a|per)\s*(year|yr)|annually/.test(after)) bill = bill / 12;
+  }
+
+  let mode = null, keys = null;
+  if (compareAll) {
+    mode = "compare"; keys = ALL_OPTION_KEYS.slice();
+  } else if (parts.length >= 2) {
+    const pv = parts.includes("rooftop") ? "rooftop" : parts.includes("balcony") ? "balcony" : null;
+    if (!compareWord && parts.length === 2 && parts.includes("battery") && pv) {
+      mode = "single"; keys = ["battery+" + pv];        // "battery with rooftop" = the combo
+    } else {
+      mode = "compare"; keys = parts;                    // 2+ standalone mentions = compare them
+    }
+  } else if (parts.length === 1) {
+    mode = "single"; keys = parts;
+  } else if (bill != null || annualUsage != null) {
+    mode = "refine"; keys = null;                        // numbers only: refine the current view
+  }
+  return mode ? { mode, keys, bill, annualUsage } : null;
+}
+
+// Rooftop (and its combo) carries usage as a per-option assumption rather than a shared input.
+function applyUsageAssumption(dict, usage) {
+  if (!dict.annual_usage_kwh) return false;
+  dict.annual_usage_kwh = { ...dict.annual_usage_kwh, value: usage, tag: TAGS.USER_PROVIDED, source: null };
+  return true;
+}
+
+// Apply a locally parsed question: set the shared inputs, switch the view, say what was understood.
+function answerLocally(parsed, reason) {
+  const understood = [];
+  if (parsed.bill != null && !isNaN(parsed.bill)) {
+    document.getElementById("bill").value = parsed.bill;
+    billEdited = true;
+    const pill = document.getElementById("bill-tag");
+    pill.textContent = TAGS.USER_PROVIDED; pill.className = "tag tag-user";
+    understood.push("monthly bill " + money(parsed.bill));
+  }
+  if (parsed.annualUsage != null && !isNaN(parsed.annualUsage)) {
+    document.getElementById("annual-usage").value = parsed.annualUsage;
+    understood.push(num(parsed.annualUsage) + " kWh/yr usage");
+  }
+  if (parsed.mode === "compare") {
+    understood.unshift("comparing " + parsed.keys.map((k) => OPTIONS[k].label).join(" vs "));
+    selectCompare(parsed.keys);
+    if (parsed.annualUsage != null) {
+      for (const k of parsed.keys) applyUsageAssumption(compareAssumptions[k], parsed.annualUsage);
+      recompute();
+    }
+  } else if (parsed.mode === "single") {
+    understood.unshift(OPTIONS[parsed.keys[0]].label);
+    selectOption(parsed.keys[0]);
+    if (parsed.annualUsage != null && applyUsageAssumption(assumptions, parsed.annualUsage)) recompute();
+  } else {
+    understood.unshift("keeping the current option");    // "refine": numbers only
+    recompute();
+  }
+  showNotice(reason + " Understood: " + understood.join("; ") + ".");
+}
+
+// Service failed: answer with the built-in mirror if the question parsed, else the classic form.
+function smartFallback(parsed, reasonPrefix) {
+  if (parsed) {
+    return answerLocally(parsed, reasonPrefix + " answered without the agent by the page’s built-in calculator.");
+  }
+  fallbackToForm(reasonPrefix + " answering without the agent with the classic form below. " +
+    "Open “Refine this estimate” to set the scenario by hand.");
+}
+
+// The question box: ask the local agent service; degrade to the local parser (then the form
+// flow) on ANY failure — the page is fully functional with zero backend (R7).
 async function askQuestion(q) {
   hideNotice();
+  const parsed = parseQuestionLocally(q);
+  // Comparison is a client-side live view: the agent service maps a question to ONE option,
+  // so compare-intent questions skip the service and are answered by the verified mirror.
+  if (parsed && parsed.mode === "compare") {
+    return answerLocally(parsed, "Side-by-side comparisons are computed right here by the page’s " +
+      "built-in calculator (the agent answers single-option questions).");
+  }
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ASK_TIMEOUT_MS);
   let payload;
@@ -521,20 +669,20 @@ async function askQuestion(q) {
     if (!res.ok) throw new Error("service returned " + res.status);
     payload = await res.json();
   } catch (e) {
-    return fallbackToForm("The calculator agent isn’t reachable — answering with the classic form below. " +
-      "Open “Refine this estimate” to set the scenario by hand.");
+    return smartFallback(parsed, "The calculator agent isn’t reachable —");
   } finally {
     clearTimeout(timer);
   }
   if (payload.error === "cap_exceeded") {
-    return fallbackToForm("The agent’s budget is used up for now — answering with the classic form below.");
+    return smartFallback(parsed, "The agent’s budget is used up for now —");
   }
   if (payload.error === "unanswerable") {
+    // The agent affirmatively said it can't map this — don't second-guess it with keyword matching.
     return fallbackToForm("The agent couldn’t map that question to a Maine solar option — your question is " +
-      "kept above; use the classic form below.");
+      "kept above; answering without the agent with the classic form below.");
   }
   if (payload.error) {
-    return fallbackToForm("The calculator agent hit an error — answering with the classic form below.");
+    return smartFallback(parsed, "The calculator agent hit an error —");
   }
   renderAgentPayload(payload);
 }
@@ -566,6 +714,7 @@ function renderAgentPayload(payload) {
 
 // Set the six-state machine to `key` without recomputing (the agent payload carries the data).
 function selectOptionSilently(key) {
+  exitCompare();
   activeParts = new Set(key === "community" ? ["community"] : key.split("+"));
   currentOption = stateKey();
   syncToggles();
@@ -580,6 +729,7 @@ function fallbackToForm(message) {
 }
 
 function recompute() {
+  if (compareKeys) return recomputeCompare();
   const opt = OPTIONS[currentOption];
   const ctx = readCtx();
   if (opt.needsBill && (isNaN(ctx.bill) || ctx.bill < 0)) {
@@ -595,6 +745,67 @@ function recompute() {
     return;
   }
   render(r);
+}
+
+// --- side-by-side comparison view -------------------------------------------
+function recomputeCompare() {
+  const ctx = readCtx();
+  if (compareKeys.some((k) => OPTIONS[k].needsBill) && (isNaN(ctx.bill) || ctx.bill < 0)) {
+    document.getElementById("result").innerHTML = "<p class='hint'>Enter a valid monthly bill (or clear the box to use the Maine average).</p>";
+    document.getElementById("detail").innerHTML = "";
+    return;
+  }
+  const rows = compareKeys.map((k) => {
+    try { return { key: k, r: OPTIONS[k].run(compareAssumptions[k], ctx) }; }
+    catch (e) { return { key: k, err: e.message }; }
+  });
+  renderCompare(rows, ctx);
+}
+
+function focusCompareOption(key) {
+  currentOption = key;
+  assumptions = compareAssumptions[key];
+  document.getElementById("refine").open = true;   // the focused ledger lives in the drawer
+  recomputeCompare();
+}
+
+function renderCompare(rows, ctx) {
+  let html = `<div class="headline"><p class="card-label">Side-by-side comparison — shared inputs, each option’s own ledger</p></div>`;
+  html += `<div class="cmp-wrap"><table class="cmp-table"><thead><tr><th>Option</th><th>Upfront</th><th>Savings/yr</th><th>Payback</th><th>NPV</th></tr></thead><tbody>`;
+  for (const row of rows) {
+    const o = OPTIONS[row.key];
+    const edited = Object.values(compareAssumptions[row.key]).some((a) => a.tag === TAGS.USER_PROVIDED);
+    const mark = edited ? ` <span class="cmp-mark" title="some assumptions customized — click to inspect">✎</span>` : "";
+    const cls = row.key === currentOption ? ` class="focus"` : "";
+    html += `<tr${cls} data-cmp="${row.key}"><td class="opt-name">${o.label}${mark}</td>`;
+    if (row.err) {
+      html += `<td colspan="4" class="cmp-err">${row.err}</td></tr>`;
+      continue;
+    }
+    const r = row.r;
+    if (row.key === "community") {
+      html += `<td>$0</td><td>${money0(r.annualSavings)}</td><td>—</td><td>—</td></tr>`;
+    } else {
+      const cap = r.capital;
+      const pb = cap.simplePaybackYears == null ? "never" : cap.simplePaybackYears.toFixed(1) + " yr";
+      const npvCls = cap.npv > 0 ? "cmp-pos" : "cmp-neg";
+      html += `<td>${money0(r.upfrontCost)}</td><td>${money0(r.annualSavings)}</td><td>${pb}</td><td class="${npvCls}">${money0(cap.npv)}</td></tr>`;
+    }
+  }
+  html += `</tbody></table></div>`;
+  html += `<p class="context cmp-note">Savings are year 1. NPV converts each option’s future savings to today’s dollars at its opportunity rate (default 7%) and subtracts the upfront cost; community solar puts no capital at stake, so payback/NPV don’t apply. Every row recomputes live from the shared bill (${money(ctx.bill)}/mo) and usage — <strong>click a row</strong> to see its full steps and assumptions.</p>`;
+  html += `<button type="button" class="cmp-exit" id="cmp-exit">✕ Exit comparison — focus on ${OPTIONS[currentOption].label}</button>`;
+  const el = document.getElementById("result");
+  el.innerHTML = html;
+  el.querySelectorAll("tr[data-cmp]").forEach((tr) => tr.addEventListener("click", () => focusCompareOption(tr.getAttribute("data-cmp"))));
+  document.getElementById("cmp-exit").addEventListener("click", () => selectOption(currentOption));
+
+  document.getElementById("tip-body").innerHTML =
+    "your electricity usage in kWh — it tightens every option in this comparison at once.";
+
+  const focused = rows.find((x) => x.key === currentOption);
+  if (focused && !focused.err) renderDetail(focused.r);
+  else document.getElementById("detail").innerHTML = focused ? `<p class='src warn'>${focused.err}</p>` : "";
 }
 
 function render(r, followupText, contextText) {
@@ -637,9 +848,17 @@ function render(r, followupText, contextText) {
     || `The most valuable thing you could tell us: ${opt.followup}.`
       + (opt.example ? ` For example: <span class="eg">“${opt.example}”</span>` : "");
 
-  // Steps + assumptions -> #detail inside the refine drawer.
+  renderDetail(r);
+}
+
+// Steps + assumptions -> #detail inside the refine drawer (shared by single and compare views).
+function renderDetail(r) {
   const el = document.getElementById("detail");
-  let html = `<h3>How we got there</h3><ol class="steps">`;
+  let html = "";
+  if (compareKeys) {
+    html += `<p class="card-label">Inspecting one row: ${OPTIONS[currentOption].label} — edits below change this row only</p>`;
+  }
+  html += `<h3>How we got there</h3><ol class="steps">`;
   for (const s of r.steps) {
     const shown = s.unit.startsWith("$") ? `${money(s.value)} <span class="unit">${s.unit}</span>` : `${num(s.value)} <span class="unit">${s.unit}</span>`;
     html += `<li><div class="step-label">${s.label}</div><code>${s.formula}</code><div class="step-val">= ${shown}</div></li>`;
@@ -742,7 +961,13 @@ function initPage() {
   });
   document.getElementById("annual-usage").addEventListener("input", () => { recompute(); });
   document.getElementById("reset").addEventListener("click", () => {
-    assumptions = OPTIONS[currentOption].defaults();
+    if (compareKeys) {
+      compareAssumptions = {};
+      for (const k of compareKeys) compareAssumptions[k] = OPTIONS[k].defaults();
+      assumptions = compareAssumptions[currentOption];
+    } else {
+      assumptions = OPTIONS[currentOption].defaults();
+    }
     billInput.value = DEFAULT_MONTHLY_BILL; billEdited = false;
     document.getElementById("annual-usage").value = "";
     const pill = document.getElementById("bill-tag");

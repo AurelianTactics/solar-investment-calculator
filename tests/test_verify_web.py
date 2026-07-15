@@ -39,6 +39,16 @@ class TestBuildDriver(unittest.TestCase):
         out = vw.build_driver("<div>no body tag</div>", "battery")
         self.assertIn("selectOption('battery')", out)
 
+    def test_compare_state_drives_select_compare(self):
+        out = vw.build_driver("<body></body>", "compare")
+        self.assertIn("selectCompare(['balcony','community'])", out)
+
+    def test_ask_fires_before_selection(self):
+        # The local fallback ANSWERS the asked question (re-routing the view), so the state
+        # under test must be selected after the ask has settled.
+        out = vw.build_driver("<body></body>", "rooftop")
+        self.assertLess(out.index(".click()"), out.index("selectOption('rooftop')"))
+
 
 class TestProbeError(unittest.TestCase):
     def test_empty_when_clean(self):
@@ -57,7 +67,7 @@ class TestAssertRender(unittest.TestCase):
     def _clean_community(self):
         return (
             '<textarea id="question"></textarea>'
-            '<div id="notice" class="show">using the classic form</div>'
+            '<div id="notice" class="show">answered without the agent</div>'
             '<div id="__probe" data-err=""></div>'
             '<div class="big">$221.40<span>/yr saved</span></div>'
             '<div class="step-label">x</div>'
@@ -66,7 +76,7 @@ class TestAssertRender(unittest.TestCase):
     def _clean_rooftop(self):
         return (
             '<textarea id="question"></textarea>'
-            '<div id="notice" class="show">using the classic form</div>'
+            '<div id="notice" class="show">answered without the agent</div>'
             '<div id="__probe" data-err=""></div>'
             '<div class="big">$1,782.00</div>'
             '<div class="sub">$16,225.00 upfront · payback 9.1 yr · NPV ...</div>'
@@ -95,9 +105,27 @@ class TestAssertRender(unittest.TestCase):
         self.assertTrue(any(".big missing" in p for p in problems))
 
     def test_missing_fallback_notice_detected(self):
-        dom = self._clean_community().replace("using the classic form", "")
+        dom = self._clean_community().replace("answered without the agent", "")
         problems = vw.assert_render("community", dom)
         self.assertTrue(any("fallback notice" in p for p in problems))
+
+    def _clean_compare(self):
+        return (
+            '<textarea id="question"></textarea>'
+            '<div id="notice" class="show">answered without the agent</div>'
+            '<div id="__probe" data-err=""></div>'
+            '<table class="cmp-table"><tr><td>Balcony / Plug-In Solar</td>'
+            '<td>Community Solar</td></tr></table>'
+            '<div class="step-label">x</div>'
+        )
+
+    def test_clean_compare_has_no_problems(self):
+        self.assertEqual(vw.assert_render("compare", self._clean_compare()), [])
+
+    def test_compare_missing_table_detected(self):
+        dom = self._clean_compare().replace('class="cmp-table"', 'class="x"')
+        problems = vw.assert_render("compare", dom)
+        self.assertTrue(any("cmp-table" in p for p in problems))
 
     def test_capital_missing_upfront_detected(self):
         dom = (
