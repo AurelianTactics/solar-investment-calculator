@@ -38,6 +38,10 @@ web. `src/cli.py` is the human + agent surface. `web/` is a question-first UI (q
 agent service, with automatic client-side form fallback) mirroring the Python formulas with an
 on-load self-check.
 
+Any option, and any **two or more** options side by side, are reachable three ways — by asking, by
+clicking (the refine drawer's mode switch → option picker), or headlessly (`--compare`,
+`selectCompare`). No capability lives only behind the question box.
+
 **The agent service** (`service/`): `POST /ask {question}` routes a natural-language question via
 one `claude-opus-4-8` structured-output call, computes through direct `src/` imports, and returns
 the CLI `--json` payload shape. Spend is capped server-side via a gitignored ledger
@@ -59,7 +63,15 @@ pytest tests service/tests                   # + service tests (needs the venv; 
 python src/cli.py --bill 150                 # community (default); --json for agents
 python src/cli.py --option battery+rooftop   # combos work everywhere options do
 python src/cli.py --option rooftop --set capacity_kw=8   # --set overrides any assumption
+python src/cli.py --compare community,balcony            # 2+ options side by side (no LLM)
 ```
+
+**Comparisons are tabulated, never recomputed.** `--compare` (and the web's `selectCompare`) run
+each option's own code and lay the answers side by side: every row must equal what
+`--option <key>` says alone, and `tests/test_cli_compare.py` holds that parity. Overrides split by
+scope on both surfaces — `--set key=value` is *shared* (it moves every compared option carrying
+the key, mirroring the web's "Shared inputs" block), `--set option:key=value` moves one row.
+`opportunity_rate` is the one that matters: NPVs at different discount rates aren't comparable.
 
 **pytest** is the test runner (existing `unittest`-style tests are collected as-is; new tests may
 be written pytest-style).

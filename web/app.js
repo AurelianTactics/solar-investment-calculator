@@ -8,11 +8,19 @@
 // Layout contract with tools/verify_web.py: selectOption(key) stays a GLOBAL function accepting
 // all six option keys ("community", "balcony", "rooftop", "battery", "battery+rooftop",
 // "battery+balcony"); selectCompare(keys) stays a GLOBAL entering the side-by-side comparison
-// view (renders `.cmp-table`; the focused row's ledger renders `.step-label` into #detail);
-// results render `.big` and `.step-label`; the question box is `#question`; the fallback notice
-// is `#notice.show` and its text always contains "without the agent". The headline renders into
-// the sticky `#result` card; steps + assumptions render into `#detail` inside the "Refine this
-// estimate" drawer; the tighter-estimate tip renders into `#tip-body` under the Ask box.
+// view (renders `.cmp-table`, plus one `details.opt-sec` ledger section per compared option in
+// #detail, each rendering `.step-label`); results render `.big` and `.step-label`; the question
+// box is `#question`; the fallback notice is `#notice.show` and its text always contains "without
+// the agent". The headline renders into the sticky `#result` card; steps + assumptions render
+// into `#detail` inside the "Refine this estimate" drawer; the tighter-estimate tip renders into
+// `#tip-body` under the Ask box.
+//
+// Refining vs. comparing is ONE drawer, split by what an edit is allowed to touch:
+//   * shared inputs (#bill, #annual-usage, #shared-assumptions) describe YOUR situation and drive
+//     every option on screen — in compare mode an edit there moves every row at once;
+//   * per-option ledgers (#detail) describe ONE option and move only that option's row.
+// A key is shared or per-option, never both: SHARED_KEYS are lifted out of the ledgers while
+// comparing, so there is never a second control editing the same number.
 
 const TAGS = {
   DEFAULT_SOURCED: "default (sourced)",
@@ -445,6 +453,10 @@ let activeParts = new Set(["community"]);
 let currentOption = "community";
 let assumptions = OPTIONS.community.defaults();
 let billEdited = false;
+// Did the USER put the usage number in the box, or is the box just mirroring an option's sourced
+// default? Only a user's number may override; a mirrored default must never follow you onto an
+// option that would have derived usage differently (community derives it from the bill).
+let usageEdited = false;
 
 // Comparison mode: null = single-option view; otherwise the ordered option keys being compared.
 // Each compared option keeps its OWN assumptions dict; the shared inputs (#bill, #annual-usage)
@@ -452,8 +464,25 @@ let billEdited = false;
 // they can't go stale against each other.
 let compareKeys = null;
 let compareAssumptions = null;
+// Which per-option ledger sections are expanded (compare mode). Kept across re-renders so an
+// edit doesn't collapse the section you're editing, or a sibling you opened to read against it.
+let openSections = new Set();
 
-function exitCompare() { compareKeys = null; compareAssumptions = null; }
+const inCompare = () => compareKeys !== null;
+
+// Assumptions that describe YOUR situation rather than one option's design, so a comparison is
+// only honest if every row uses the same number. While comparing, these are lifted out of the
+// per-option ledgers into the shared block and fan out to every compared option on edit.
+// `opportunity_rate` is the load-bearing one: NPVs computed at different discount rates aren't
+// comparable at all. (`annual_usage_kwh` is shared too, but via the #annual-usage box below.)
+const SHARED_KEYS = ["opportunity_rate"];
+
+function exitCompare() { compareKeys = null; compareAssumptions = null; openSections = new Set(); }
+
+// The dicts a shared input must write to: every compared option, or just the current one.
+function activeDicts() {
+  return inCompare() ? compareKeys.map((k) => compareAssumptions[k]) : [assumptions];
+}
 
 function stateKey() {
   if (activeParts.has("community")) return "community";
@@ -464,12 +493,6 @@ function stateKey() {
 }
 
 function toggleOption(part) {
-  if (compareKeys) {              // clicking a toggle exits comparison into that single option
-    exitCompare();
-    activeParts = new Set([part]);
-    applyState();
-    return;
-  }
   if (part === "community") {
     activeParts = new Set(["community"]);
   } else if (activeParts.has(part)) {
@@ -491,36 +514,180 @@ function selectOption(key) {  // GLOBAL — the deterministic verifier's driver 
 }
 
 // GLOBAL (verifier contract) — enter the side-by-side comparison view over 2+ option keys.
-// Every row recomputes live from the shared inputs; clicking a row focuses its full ledger
-// (steps + assumptions) in the refine drawer, where edits apply to that row only.
+// Every row recomputes live from the shared inputs; each compared option ALSO gets its own
+// ledger section in the drawer, so any row can be refined without leaving the comparison.
 function selectCompare(keys, focusKey) {
   compareKeys = keys.slice();
   compareAssumptions = {};
   for (const k of compareKeys) compareAssumptions[k] = OPTIONS[k].defaults();
-  currentOption = focusKey || compareKeys[0];
+  currentOption = focusKey && compareKeys.includes(focusKey) ? focusKey : compareKeys[0];
   assumptions = compareAssumptions[currentOption];
-  syncToggles();
-  const billCard = document.getElementById("bill-row");
-  if (billCard) billCard.style.display = compareKeys.some((k) => OPTIONS[k].needsBill) ? "block" : "none";
-  recompute();
+  openSections = new Set([currentOption]);
+  afterStateChange();
+}
+
+// Swap which options are being compared WITHOUT discarding the edits made to the survivors —
+// dropping rooftop from a three-way compare must not silently reset the battery row you tuned.
+function toggleCompareKey(key) {
+  const next = compareKeys.includes(key)
+    ? compareKeys.filter((k) => k !== key)
+    : [...compareKeys, key];
+  if (next.length < 2) return selectOption(next[0] || key);  // one option isn't a comparison
+  const kept = compareAssumptions;
+  compareKeys = next;
+  compareAssumptions = {};
+  for (const k of next) compareAssumptions[k] = kept[k] || OPTIONS[k].defaults();
+  if (!next.includes(currentOption)) currentOption = next[0];
+  assumptions = compareAssumptions[currentOption];
+  openSections = new Set([...openSections].filter((k) => next.includes(k)));
+  if (!openSections.size) openSections.add(currentOption);
+  afterStateChange();
+}
+
+// Enter/leave comparison from the mode switch. Entering seeds a second option so the user lands
+// on an actual comparison rather than an empty picker; community is the natural comparator
+// (it's the zero-capital baseline every capital option has to beat).
+function setMode(mode) {
+  if (mode === "compare") {
+    if (inCompare()) return;
+    selectCompare(currentOption === "community" ? ["community", "rooftop"] : [currentOption, "community"],
+                  currentOption);
+  } else {
+    if (inCompare()) selectOption(currentOption);
+  }
 }
 
 function applyState() {
   currentOption = stateKey();
   assumptions = OPTIONS[currentOption].defaults();
-  syncToggles();
-  const billCard = document.getElementById("bill-row");
-  if (billCard) billCard.style.display = OPTIONS[currentOption].needsBill ? "block" : "none";
+  afterStateChange();
+}
+
+// One path out of every state change: the pickers, the shared block, and the shared inputs'
+// reach all follow from (compareKeys, currentOption) — never set piecemeal at each call site.
+// The shared inputs are re-applied FIRST, because a state change rebuilds assumption dicts from
+// defaults and your bill/usage must survive switching options.
+function afterStateChange() {
+  syncPickers();
+  applyUsageInput();
+  syncSharedInputs();
   recompute();
 }
 
-function syncToggles() {
-  document.querySelectorAll("button.toggle").forEach((btn) => {
-    const part = btn.getAttribute("data-part");
-    const on = !compareKeys && activeParts.has(part);
+function syncPickers() {
+  const cmp = inCompare();
+  document.getElementById("single-picker").hidden = cmp;
+  document.getElementById("compare-picker").hidden = !cmp;
+  document.querySelectorAll("button.mode").forEach((btn) => {
+    const on = (btn.getAttribute("data-mode") === "compare") === cmp;
     btn.classList.toggle("active", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
   });
+  document.querySelectorAll("button.toggle[data-part]").forEach((btn) => {
+    const on = !cmp && activeParts.has(btn.getAttribute("data-part"));
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  document.querySelectorAll("button.toggle[data-cmp-key]").forEach((btn) => {
+    const on = cmp && compareKeys.includes(btn.getAttribute("data-cmp-key"));
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+// --- shared inputs ----------------------------------------------------------
+// `annual_usage_kwh` is carried as an assumption by rooftop (and its combo) but as a ctx override
+// by community, which derives usage from the bill. The #annual-usage box is the ONE editor for
+// both readings, so it's lifted out of every ledger — see ledgerSkipKeys().
+const USAGE_KEY = "annual_usage_kwh";
+
+function usageDicts() { return activeDicts().filter((d) => d[USAGE_KEY]); }
+function optionKeysOnScreen() { return inCompare() ? compareKeys : [currentOption]; }
+function anyNeedsBill() { return optionKeysOnScreen().some((k) => OPTIONS[k].needsBill); }
+
+function syncSharedInputs() {
+  const cmp = inCompare();
+  document.getElementById("shared-head").hidden = !cmp;
+  document.getElementById("shared-note").hidden = !cmp;
+  document.getElementById("bill-row").style.display = anyNeedsBill() ? "block" : "none";
+  // Usage only matters where something reads it: community (bill -> usage) or a PV option
+  // carrying annual_usage_kwh. Balcony and a lone battery ignore it — don't ask for it.
+  document.getElementById("usage-row").style.display =
+    anyNeedsBill() || usageDicts().length ? "block" : "none";
+  syncUsageBox();
+  renderSharedAssumptions();
+}
+
+// Show what's actually in force: where an option carries annual_usage_kwh, the box mirrors that
+// assumption — tag, source and all — instead of sitting empty while a sourced 6,600 kWh default
+// quietly drives the answer.
+function syncUsageBox() {
+  syncUsageValueAndTag();
+  renderUsageMeta();
+}
+
+function syncUsageValueAndTag() {
+  const box = document.getElementById("annual-usage");
+  const tag = document.getElementById("usage-tag");
+  const a = usageDicts().map((d) => d[USAGE_KEY])[0];
+  if (!a) {
+    if (!usageEdited) box.value = "";     // drop a mirrored default rather than let it follow you
+    box.placeholder = "estimate from bill";
+    tag.hidden = true;
+    return;
+  }
+  if (document.activeElement !== box) box.value = a.value;   // mirror; don't fight live typing
+  tag.hidden = false;
+  tag.textContent = a.tag;
+  tag.className = tagClass(a.tag);
+}
+
+// The box's explanation only changes when the STATE does, so it's rendered on state change alone —
+// rebuilding it on every keystroke would collapse the disclosure the user opened to read.
+function renderUsageMeta() {
+  const a = usageDicts().map((d) => d[USAGE_KEY])[0];
+  document.getElementById("usage-meta").innerHTML = a
+    ? `<p class="hint">${inCompare()
+        ? "Drives every option in the comparison that uses your usage."
+        : "The single most valuable number you can give us."}</p>` + whyHtml(a)
+    : `<p class="hint">If you know it, enter it — it replaces the bill→usage estimate with your
+       real number.</p>`;
+}
+
+// Cleared box (or a box that's only mirroring): every option goes back to its sourced default,
+// and community goes back to deriving usage from the bill.
+function resetUsageToDefaults() {
+  for (const k of optionKeysOnScreen()) {
+    const d = inCompare() ? compareAssumptions[k] : assumptions;
+    if (d[USAGE_KEY]) d[USAGE_KEY] = OPTIONS[k].defaults()[USAGE_KEY];
+  }
+}
+
+// Push the usage box into every option that carries usage as an assumption. Runs on every state
+// change too, so switching or adding an option never loses the number you typed.
+function applyUsageInput() {
+  const raw = document.getElementById("annual-usage").value;
+  if (!usageEdited || raw === "") {
+    usageEdited = false;
+    resetUsageToDefaults();
+    return;
+  }
+  const v = parseFloat(raw);
+  if (isNaN(v) || v < 0) return;
+  for (const d of usageDicts()) applyUsageAssumption(d, v);
+}
+
+// SHARED_KEYS rendered once, above the per-option ledgers, editing every compared option at once.
+function renderSharedAssumptions() {
+  const host = document.getElementById("shared-assumptions");
+  if (!inCompare()) { host.innerHTML = ""; return; }
+  let rows = "";
+  for (const key of SHARED_KEYS) {
+    const a = compareKeys.map((k) => compareAssumptions[k][key]).find(Boolean);
+    if (a) rows += assumptionRowHtml(key, a, { shared: true });
+  }
+  host.innerHTML = rows ? `<div class="assumptions">${rows}</div>` : "";
+  wireAssumptionInputs(host);
 }
 
 function readCtx() {
@@ -616,21 +783,20 @@ function answerLocally(parsed, reason) {
   }
   if (parsed.annualUsage != null && !isNaN(parsed.annualUsage)) {
     document.getElementById("annual-usage").value = parsed.annualUsage;
+    usageEdited = true;
     understood.push(num(parsed.annualUsage) + " kWh/yr usage");
   }
+  // The shared inputs are set above; selecting the view re-applies them to whatever it builds.
   if (parsed.mode === "compare") {
     understood.unshift("comparing " + parsed.keys.map((k) => OPTIONS[k].label).join(" vs "));
     selectCompare(parsed.keys);
-    if (parsed.annualUsage != null) {
-      for (const k of parsed.keys) applyUsageAssumption(compareAssumptions[k], parsed.annualUsage);
-      recompute();
-    }
   } else if (parsed.mode === "single") {
     understood.unshift(OPTIONS[parsed.keys[0]].label);
     selectOption(parsed.keys[0]);
-    if (parsed.annualUsage != null && applyUsageAssumption(assumptions, parsed.annualUsage)) recompute();
   } else {
     understood.unshift("keeping the current option");    // "refine": numbers only
+    applyUsageInput();
+    syncSharedInputs();
     recompute();
   }
   showNotice(reason + " Understood: " + understood.join("; ") + ".");
@@ -707,6 +873,9 @@ function renderAgentPayload(payload) {
       capital: { npv: res.npv, simplePaybackYears: res.simple_payback_years, opportunityRate: res.opportunity_rate, horizonYears: res.horizon_years },
     };
   }
+  // Mirror the agent's own assumptions into the shared inputs (never applyUsageInput() here —
+  // that would overwrite the agent's answer with this page's defaults).
+  syncSharedInputs();
   const note = payload.agent && payload.agent.note ? " " + payload.agent.note : "";
   render(r, payload.followup,
     "Answered by the calculator agent — " + OPTIONS[currentOption].describe(assumptions, readCtx()) + "." + note);
@@ -717,9 +886,7 @@ function selectOptionSilently(key) {
   exitCompare();
   activeParts = new Set(key === "community" ? ["community"] : key.split("+"));
   currentOption = stateKey();
-  syncToggles();
-  const billCard = document.getElementById("bill-row");
-  if (billCard) billCard.style.display = OPTIONS[currentOption].needsBill ? "block" : "none";
+  syncPickers();
 }
 
 function fallbackToForm(message) {
@@ -762,11 +929,16 @@ function recomputeCompare() {
   renderCompare(rows, ctx);
 }
 
+// Clicking a table row jumps to that option's ledger — it EXPANDS the section rather than
+// swapping the drawer's contents, so any section you already opened stays open beside it.
 function focusCompareOption(key) {
   currentOption = key;
   assumptions = compareAssumptions[key];
-  document.getElementById("refine").open = true;   // the focused ledger lives in the drawer
+  openSections.add(key);
+  document.getElementById("refine").open = true;   // the ledgers live in the drawer
   recomputeCompare();
+  const sec = document.querySelector(`details.opt-sec[data-sec="${key}"]`);
+  if (sec) sec.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function renderCompare(rows, ctx) {
@@ -793,7 +965,7 @@ function renderCompare(rows, ctx) {
     }
   }
   html += `</tbody></table></div>`;
-  html += `<p class="context cmp-note">Savings are year 1. NPV converts each option’s future savings to today’s dollars at its opportunity rate (default 7%) and subtracts the upfront cost; community solar puts no capital at stake, so payback/NPV don’t apply. Every row recomputes live from the shared bill (${money(ctx.bill)}/mo) and usage — <strong>click a row</strong> to see its full steps and assumptions.</p>`;
+  html += `<p class="context cmp-note">Savings are year 1. NPV converts each option’s future savings to today’s dollars at the shared opportunity rate (default 7%) and subtracts the upfront cost; community solar puts no capital at stake, so payback/NPV don’t apply. Every row recomputes live from the shared bill (${money(ctx.bill)}/mo) and usage — <strong>click a row</strong> to jump to its own steps and assumptions.</p>`;
   html += `<button type="button" class="cmp-exit" id="cmp-exit">✕ Exit comparison — focus on ${OPTIONS[currentOption].label}</button>`;
   const el = document.getElementById("result");
   el.innerHTML = html;
@@ -803,9 +975,36 @@ function renderCompare(rows, ctx) {
   document.getElementById("tip-body").innerHTML =
     "your electricity usage in kWh — it tightens every option in this comparison at once.";
 
-  const focused = rows.find((x) => x.key === currentOption);
-  if (focused && !focused.err) renderDetail(focused.r);
-  else document.getElementById("detail").innerHTML = focused ? `<p class='src warn'>${focused.err}</p>` : "";
+  renderCompareDetail(rows);
+}
+
+// Every compared option gets its OWN ledger section — the whole point of a comparison is that you
+// can refine both sides of it. Sections are collapsed by default (six full ledgers is a wall of
+// numbers) but hold their open/closed state across re-renders, so editing an assumption doesn't
+// slam shut the section you're working in.
+function renderCompareDetail(rows) {
+  const el = document.getElementById("detail");
+  let html = `<p class="card-label">Refine each option — edits here move only that option’s row</p>`;
+  for (const row of rows) {
+    const open = openSections.has(row.key) ? " open" : "";
+    const tail = row.err ? "error"
+      : row.key === "community" ? `${money0(row.r.annualSavings)}/yr · $0 upfront`
+      : `${money0(row.r.annualSavings)}/yr · ${money0(row.r.upfrontCost)} upfront`;
+    html += `<details class="opt-sec"${open} data-sec="${row.key}">`
+      + `<summary>${OPTIONS[row.key].label}<span class="sec-tail">${tail}</span></summary>`
+      + `<div class="sec-body">`
+      + (row.err ? `<p class="src warn">${row.err}</p>`
+                 : ledgerHtml(row.r, compareAssumptions[row.key], row.key))
+      + `</div></details>`;
+  }
+  el.innerHTML = html;
+  el.querySelectorAll("details.opt-sec").forEach((d) => {
+    d.addEventListener("toggle", () => {
+      const key = d.getAttribute("data-sec");
+      if (d.open) openSections.add(key); else openSections.delete(key);
+    });
+  });
+  wireAssumptionInputs(el);
 }
 
 function render(r, followupText, contextText) {
@@ -851,55 +1050,90 @@ function render(r, followupText, contextText) {
   renderDetail(r);
 }
 
-// Steps + assumptions -> #detail inside the refine drawer (shared by single and compare views).
+// Keys a ledger must NOT render, because a shared input above is already their one editor.
+function ledgerSkipKeys() { return inCompare() ? [...SHARED_KEYS, USAGE_KEY] : [USAGE_KEY]; }
+
+// Steps + assumptions -> #detail inside the refine drawer (single-option view).
 function renderDetail(r) {
   const el = document.getElementById("detail");
-  let html = "";
-  if (compareKeys) {
-    html += `<p class="card-label">Inspecting one row: ${OPTIONS[currentOption].label} — edits below change this row only</p>`;
-  }
-  html += `<h3>How we got there</h3><ol class="steps">`;
+  el.innerHTML = ledgerHtml(r, assumptions, currentOption);
+  wireAssumptionInputs(el);
+}
+
+// One option's ledger: its calculation chain, then its own assumptions. Takes the option and its
+// dict explicitly (never the globals) so the compare view can render one per row.
+function ledgerHtml(r, a, optionKey) {
+  let html = `<h3>How we got there</h3><ol class="steps">`;
   for (const s of r.steps) {
     const shown = s.unit.startsWith("$") ? `${money(s.value)} <span class="unit">${s.unit}</span>` : `${num(s.value)} <span class="unit">${s.unit}</span>`;
     html += `<li><div class="step-label">${s.label}</div><code>${s.formula}</code><div class="step-val">= ${shown}</div></li>`;
   }
-  if (currentOption !== "community") {
+  if (optionKey !== "community") {
     const cap = r.capital;
     html += `<li><div class="step-label">Capital verdict (vs. ${(cap.opportunityRate * 100).toFixed(0)}% opportunity cost)</div><code>NPV = −upfront + Σ savings_t ÷ (1+r)^t</code><div class="step-val">= ${money0(cap.npv)} <span class="unit">${cap.npv > 0 ? "solar wins" : "market wins"}, ${cap.horizonYears}-yr horizon</span></div></li>`;
   }
   html += `</ol>`;
 
-  html += `<h3>Assumptions <span class="hint">(edit any to refine — expand a row for what it means)</span></h3><div class="assumptions">`;
-  for (const key of Object.keys(assumptions)) {
-    const a = assumptions[key];
-    html += `<div class="assumption"><label>${a.label}</label>`;
-    html += `<div class="arow"><input type="number" step="any" min="0" data-key="${key}" value="${a.value}"> <span class="unit">${a.unit}</span> <span class="${tagClass(a.tag)}">${a.tag}</span></div>`;
-    if (!a.source && a.tag === TAGS.UNSOURCED) {
-      html += `<div class="src warn">no source yet — don't treat this number as established fact</div>`;
-    }
-    if (a.explain || a.source) {
-      html += `<details class="why"><summary>What this means</summary><div class="deep">`;
-      if (a.explain) html += `<p>${a.explain}</p>`;
-      if (a.source) {
-        const cite = a.source.url ? `<a href="${a.source.url}" target="_blank" rel="noopener">${a.source.title}</a>` : a.source.title;
-        html += `<p class="src">source: ${cite}${a.source.note ? ` — ${a.source.note}` : ""}</p>`;
-        if (a.source.what_is_it) html += `<p class="src">what the source is: ${a.source.what_is_it}</p>`;
-      } else if (a.tag === TAGS.UNSOURCED) {
-        html += `<p class="src warn">This number is a placeholder awaiting research — treat it as a question, not an answer.</p>`;
-      }
-      html += `</div></details>`;
-    }
-    html += `</div>`;
+  const skip = ledgerSkipKeys();
+  const lifted = Object.keys(a).filter((k) => skip.includes(k));
+  html += `<h3>Assumptions <span class="hint">(edit any to refine — expand a row for what it means)</span></h3>`;
+  if (lifted.length) {
+    // Lead with WHERE, then list: an assumption's label can itself contain an em dash, so a
+    // "<label> and <label> — these describe…" sentence turns into a run-on.
+    const where = inCompare()
+      ? "Edited once under <strong>Shared inputs</strong> above, where a change moves every option at once"
+      : "Edited in the box above";
+    html += `<p class="hint" style="margin:-4px 0 10px">${where}, because
+      ${lifted.length > 1 ? "they describe" : "it describes"} your situation rather than this
+      option: ${lifted.map((k) => a[k].label).join("; ")}.</p>`;
   }
-  html += `</div>`;
-  el.innerHTML = html;
+  html += `<div class="assumptions">`;
+  for (const key of Object.keys(a)) {
+    if (skip.includes(key)) continue;
+    html += assumptionRowHtml(key, a[key], { opt: optionKey });
+  }
+  return html + `</div>`;
+}
 
-  el.querySelectorAll("input[data-key]").forEach((inp) => {
+// One editable assumption row. `where` decides which dict an edit lands in: {opt} = that option
+// only; {shared:true} = every option on screen that carries the key.
+function assumptionRowHtml(key, a, where) {
+  const target = where.shared ? ` data-shared="1"` : ` data-opt="${where.opt}"`;
+  let html = `<div class="assumption"><label>${a.label}</label>`;
+  html += `<div class="arow"><input type="number" step="any" min="0" data-key="${key}"${target} value="${a.value}"> <span class="unit">${a.unit}</span> <span class="${tagClass(a.tag)}">${a.tag}</span></div>`;
+  if (!a.source && a.tag === TAGS.UNSOURCED) {
+    html += `<div class="src warn">no source yet — don't treat this number as established fact</div>`;
+  }
+  return html + whyHtml(a) + `</div>`;
+}
+
+// The "what this means / where it came from" disclosure. Every surface that shows an assumption
+// shows this too — a number without its provenance is exactly what this tool exists not to be.
+function whyHtml(a) {
+  if (!a.explain && !a.source) return "";
+  let html = `<details class="why"><summary>What this means</summary><div class="deep">`;
+  if (a.explain) html += `<p>${a.explain}</p>`;
+  if (a.source) {
+    const cite = a.source.url ? `<a href="${a.source.url}" target="_blank" rel="noopener">${a.source.title}</a>` : a.source.title;
+    html += `<p class="src">source: ${cite}${a.source.note ? ` — ${a.source.note}` : ""}</p>`;
+    if (a.source.what_is_it) html += `<p class="src">what the source is: ${a.source.what_is_it}</p>`;
+  } else if (a.tag === TAGS.UNSOURCED) {
+    html += `<p class="src warn">This number is a placeholder awaiting research — treat it as a question, not an answer.</p>`;
+  }
+  return html + `</div></details>`;
+}
+
+function wireAssumptionInputs(root) {
+  root.querySelectorAll("input[data-key]").forEach((inp) => {
     inp.addEventListener("change", (e) => {
       const key = e.target.getAttribute("data-key");
       const v = parseFloat(e.target.value);
       if (isNaN(v)) return;
-      assumptions[key] = { ...assumptions[key], value: v, tag: TAGS.USER_PROVIDED, source: null };
+      const opt = e.target.getAttribute("data-opt");
+      const dicts = e.target.hasAttribute("data-shared")
+        ? activeDicts().filter((d) => d[key])          // shared: move every row at once
+        : [opt && compareAssumptions ? compareAssumptions[opt] : assumptions];
+      for (const d of dicts) d[key] = { ...d[key], value: v, tag: TAGS.USER_PROVIDED, source: null };
       if (key === "default_monthly_bill") {
         // Agent payloads include this row; the computed bill lives in the #bill input — keep
         // them in lockstep so editing the row actually changes the result.
@@ -909,6 +1143,11 @@ function renderDetail(r) {
         pill.textContent = TAGS.USER_PROVIDED; pill.className = "tag tag-user";
       }
       recompute();
+      // Retag in place rather than re-rendering the block: a rebuild would collapse the "what
+      // this means" the user opened to decide what to type.
+      const pill = e.target.closest(".arow").querySelector(".tag");
+      pill.textContent = TAGS.USER_PROVIDED;
+      pill.className = tagClass(TAGS.USER_PROVIDED);
     });
   });
 }
@@ -947,10 +1186,24 @@ function initPage() {
     btn.addEventListener("click", () => { qbox.value = btn.textContent.trim(); askQuestion(qbox.value); });
   });
 
-  // refine flow
-  document.querySelectorAll("button.toggle").forEach((btn) => {
+  // refine flow: one option, or several side by side
+  document.querySelectorAll("button.mode").forEach((btn) => {
+    btn.addEventListener("click", () => setMode(btn.getAttribute("data-mode")));
+  });
+  document.querySelectorAll("button.toggle[data-part]").forEach((btn) => {
     btn.addEventListener("click", () => toggleOption(btn.getAttribute("data-part")));
   });
+
+  // The compare picker is built from the registry, so all six states are reachable WITHOUT the
+  // question box — including the two combos, which the single-option toggles can only reach as
+  // a pairing. This is the click-only answer to "compare community solar to balcony solar".
+  const cmpHost = document.getElementById("compare-toggles");
+  cmpHost.innerHTML = ALL_OPTION_KEYS.map((k) =>
+    `<button class="toggle" type="button" data-cmp-key="${k}" aria-pressed="false">${OPTIONS[k].label}</button>`).join("");
+  cmpHost.querySelectorAll("button[data-cmp-key]").forEach((btn) => {
+    btn.addEventListener("click", () => toggleCompareKey(btn.getAttribute("data-cmp-key")));
+  });
+
   const billInput = document.getElementById("bill");
   billInput.addEventListener("input", () => {
     billEdited = billInput.value !== "" && parseFloat(billInput.value) !== DEFAULT_MONTHLY_BILL;
@@ -959,9 +1212,18 @@ function initPage() {
     pill.className = billEdited ? "tag tag-user" : "tag tag-sourced";
     recompute();
   });
-  document.getElementById("annual-usage").addEventListener("input", () => { recompute(); });
+  const usageInput = document.getElementById("annual-usage");
+  usageInput.addEventListener("input", () => {
+    usageEdited = usageInput.value !== "";
+    applyUsageInput();
+    recompute();
+    syncUsageValueAndTag();   // retag; the box itself is left alone while it has focus
+  });
+  // On blur, show what's actually in force — clearing the box falls back to a sourced default
+  // rather than to nothing, so the box must say so instead of sitting misleadingly empty.
+  usageInput.addEventListener("change", () => syncUsageValueAndTag());
   document.getElementById("reset").addEventListener("click", () => {
-    if (compareKeys) {
+    if (inCompare()) {
       compareAssumptions = {};
       for (const k of compareKeys) compareAssumptions[k] = OPTIONS[k].defaults();
       assumptions = compareAssumptions[currentOption];
@@ -969,9 +1231,10 @@ function initPage() {
       assumptions = OPTIONS[currentOption].defaults();
     }
     billInput.value = DEFAULT_MONTHLY_BILL; billEdited = false;
-    document.getElementById("annual-usage").value = "";
+    usageInput.value = ""; usageEdited = false;
     const pill = document.getElementById("bill-tag");
     pill.textContent = TAGS.DEFAULT_SOURCED; pill.className = "tag tag-sourced";
+    syncSharedInputs();
     recompute();
   });
 

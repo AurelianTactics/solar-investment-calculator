@@ -105,6 +105,35 @@
   .refine-body { background:var(--card); border:1px solid var(--rule); border-radius:14px;
     padding:20px 22px; margin-top:12px; box-shadow:var(--shadow); }
 
+  /* ---- mode switch: one option, or several side by side ---- */
+  .mode-switch { display:inline-flex; margin:0 0 20px; background:var(--paper);
+    border:1.5px solid var(--rule-strong); border-radius:10px; overflow:hidden; }
+  button.mode { background:none; color:var(--ink-soft); border:none; border-radius:0; margin:0;
+    padding:9px 16px; cursor:pointer; font:600 .84rem "Public Sans", sans-serif;
+    letter-spacing:.05em; text-transform:uppercase; transition:color .12s ease; }
+  button.mode + button.mode { border-left:1.5px solid var(--rule-strong); }
+  button.mode:hover { transform:none; box-shadow:none; color:var(--sun); }
+  button.mode.active { background:var(--ink); color:var(--paper); }
+
+  /* ---- shared inputs (drive every compared option) vs. per-option ledgers ---- */
+  .shared-head { margin:24px 0 3px; padding-top:18px; border-top:2px solid var(--rule-strong); }
+  .shared-note { color:var(--muted); font-size:.85rem; margin:0; line-height:1.5; }
+  .usage-meta { margin-top:9px; }
+  details.opt-sec { border-top:1px solid var(--rule); }
+  details.opt-sec:first-of-type { border-top:2px solid var(--rule-strong); }
+  details.opt-sec > summary { cursor:pointer; list-style:none; display:flex; align-items:baseline;
+    gap:9px; padding:15px 2px; font-family:"Fraunces", Georgia, serif; font-weight:600;
+    font-size:1.06rem; color:var(--ink); }
+  details.opt-sec > summary::-webkit-details-marker { display:none; }
+  details.opt-sec > summary::before { content:"+"; font:600 1.05rem "IBM Plex Mono", monospace;
+    color:var(--sun); }
+  details.opt-sec[open] > summary::before { content:"–"; }
+  details.opt-sec > summary:hover { color:var(--sun); }
+  .sec-tail { margin-left:auto; font:500 .8rem "IBM Plex Mono", monospace; color:var(--muted);
+    font-variant-numeric:tabular-nums; }
+  .sec-body { padding:0 0 20px 2px; }
+  .sec-body > h3:first-child { margin-top:0; }
+
   .toggles { display:flex; flex-wrap:wrap; gap:9px; margin:4px 0 4px; }
   button.toggle {
     background:var(--paper); color:var(--ink-soft); border:1.5px solid var(--rule-strong);
@@ -278,15 +307,34 @@
   <details class="refine" id="refine">
     <summary>Refine this estimate — options, every step, every assumption</summary>
     <div class="refine-body">
-      <label>Which option (or pairing)?</label>
-      <div class="toggles" role="group" aria-label="Solar options">
-        <button class="toggle" type="button" data-part="community">Community</button>
-        <button class="toggle" type="button" data-part="balcony">Balcony solar</button>
-        <button class="toggle" type="button" data-part="rooftop">Rooftop</button>
-        <button class="toggle" type="button" data-part="battery">Battery</button>
+      <div class="mode-switch" role="group" aria-label="Estimate mode">
+        <button class="mode active" type="button" data-mode="single" aria-pressed="true">One option</button>
+        <button class="mode" type="button" data-mode="compare" aria-pressed="false">Compare side by side</button>
       </div>
-      <p class="hint toggle-hint">Battery pairs with rooftop or balcony solar. Community solar
-        stands alone, and rooftop + balcony isn’t offered (one PV system at a time).</p>
+
+      <div id="single-picker">
+        <label>Which option (or pairing)?</label>
+        <div class="toggles" role="group" aria-label="Solar options">
+          <button class="toggle" type="button" data-part="community">Community</button>
+          <button class="toggle" type="button" data-part="balcony">Balcony solar</button>
+          <button class="toggle" type="button" data-part="rooftop">Rooftop</button>
+          <button class="toggle" type="button" data-part="battery">Battery</button>
+        </div>
+        <p class="hint toggle-hint">Battery pairs with rooftop or balcony solar. Community solar
+          stands alone, and rooftop + balcony isn’t offered (one PV system at a time).</p>
+      </div>
+
+      <div id="compare-picker" hidden>
+        <label>Which options do you want side by side?
+          <span class="hint">(pick any two or more)</span></label>
+        <div class="toggles" id="compare-toggles" role="group" aria-label="Options to compare"></div>
+        <p class="hint toggle-hint">Every option you pick gets a row in the table and its own
+          ledger below. Drop back to one and you’re in the single-option view again.</p>
+      </div>
+
+      <p class="card-label shared-head" id="shared-head" hidden>Shared inputs</p>
+      <p class="shared-note" id="shared-note" hidden>These are your situation, not any one option’s
+        — every option in the comparison is computed from them.</p>
 
       <div class="billrow" id="bill-row">
         <label for="bill">Roughly how much is your monthly power bill?
@@ -296,10 +344,15 @@
           550 kWh, Maine DOE) until you enter yours.</p>
       </div>
 
-      <div class="opt">
-        <label for="annual-usage">Your annual usage in kWh <span class="hint">(if you know it — overrides the bill→usage step)</span></label>
+      <div class="opt" id="usage-row">
+        <label for="annual-usage">Your annual usage in kWh
+          <span class="tag tag-sourced" id="usage-tag" hidden>default (sourced)</span></label>
         <input id="annual-usage" type="number" min="0" step="1" placeholder="estimate from bill">
+        <div class="usage-meta" id="usage-meta"></div>
       </div>
+
+      <div id="shared-assumptions"></div>
+
       <p class="hint" style="margin-top:12px">Every other assumption is editable directly in the
         ledger below — expand a row to see what it means and where it comes from.</p>
       <button id="reset" type="button">↺ Reset assumptions to defaults</button>
@@ -317,6 +370,6 @@
 </div>
 <!-- Bump ?v= whenever app.js changes: it keeps a cached script from being served with a newer
      page skeleton (the mismatch renders no estimate; app.js also fails loudly if it happens). -->
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

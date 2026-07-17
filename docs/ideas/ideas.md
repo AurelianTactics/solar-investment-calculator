@@ -2,7 +2,7 @@
 * DONE have the actual options compared side by side as built up or a button for this
 * DONE when you click on a default option it doesn't work if the LLM is down. why?
 
-* when doing comparison side by side can't edit all the options
+* DONE when doing comparison side by side can't edit all the options
     * need like a header then can look at the side by side
 
 * validate updated version
@@ -16,20 +16,28 @@
         is the usage correct? no un venv mentioned?
 
 # Fixes
-
+* cliking up and down should be scaled correctly. .01 or .1 for things that are fraction. $10 for thinks like monthly bill. 1 for things like years
 
 # To do
 
-* wiki updates
-    * research the length of battery storage, 10 years seems too short
+* DONE wiki updates
+    * REVIEW research the length of battery storage, 10 years seems too short
         * started in the wiki
-    * more research DER batters and using peak versus non-pea
+    * REVIEW I think the pricing on batteries isn't great. just one articla on Tesla powerwall
+    * REVIEW more research DER batters and using peak versus non-pea
         * see wiki results
-    * review updated wiki, see if any fixes need to be put into this
-    * for CMP, the peak versus not peak usage part
-    * I think the pricing on batteries isn't great. just one articla on Tesla powerwall
-    * NEB article is form 2024 and might not be accurate now
-    * https://www.maine.gov/energy/electricity-prices was updated on 7/1
+    * REVIEW updated wiki, see if any fixes need to be put into this
+    * running update
+        * for CMP, the peak versus not peak usage part
+        * NEB article is form 2024 and might not be accurate now
+        * https://www.maine.gov/energy/electricity-prices was updated on 7/1
+    * what about non CMP and time of use arbitrage
+
+* incorporate wiki updates (maybe fold into the plan below)
+* battery arbitrage (DER) only from the wiki as an option maybe
+* time of use with a battery might work, look into it
+    * maybe for CMP, not sure about others
+    * read wiki research
 
 * plan this out:
     * i'm not a huge fan of the layout, color scheme, text blobs etc. get a few different ideas for this
@@ -37,15 +45,17 @@
         * disclaimer as POC
             add this part to the bottom of the page and have a disclaimer that this is a proof of concept "Ask a plain question, get a fact-checkable answer. Every number below is a labeled, editable, sourced assumption — never a black box."
         * when editing the options, have it turn back into text. Maybe carry that text down like what is being shown with the rate of return stuff
+        * button says 'community' instead of 'community solar'
 
     * feedback from users into the self improvement loop
     * Railway deploy
     * MCP / way for other agents to access the tool and data
 
-    Let's plan out the rest of the things I want to finish up before I close out this POC:
-        * I am not a huge fan of the layout, color scheme and many of the text blobs. Let's try 3 different layouts and I can see what sticks. This still seems too busy, too many different font sizes, bold / italics, colors etc. Seems somehow too busy and yet when flourishes or touches are added that are useful/needed them seem ugly.
+    NEW WORKTREE FOR WHEN THIS FINISHES UP Let's plan out the rest of the things I want to finish up before I close out this POC:
         * Let's add a disclaimer at the bottom of the page that this is a POC.
         * remove this part "Ask a plain question, get a fact-checkable answer. Every number below is a labeled, editable, sourced assumption — never a black box."
+        * button says 'community' instead of 'community solar'
+        * I am not a huge fan of the layout, color scheme and many of the text blobs. Let's try 3 different layouts and I can see what sticks. This still seems too busy, too many different font sizes, bold / italics, colors etc. Seems somehow too busy and yet when flourishes or touches are added that are useful/needed them seem ugly.
         * when editing the options, have it turn back into text. Maybe carry that text down like what is being shown with the rate of return stuff
             * Is there a way to then kind of cache this so don't need the LLM to interpret?
         * Railway deploy

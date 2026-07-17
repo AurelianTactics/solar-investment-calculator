@@ -42,8 +42,11 @@ WEB_FILES = ["web/index.html", "web/app.js"]
 # Options the page exposes (mirror of the OPTIONS registry in web/app.js) — all six R4 states.
 OPTIONS = ["community", "balcony", "rooftop", "battery", "battery+rooftop", "battery+balcony"]
 # Page states the browser loop drives: every option, plus the side-by-side comparison view
-# (entered via the global selectCompare(); its focused row renders the normal ledger).
+# (entered via the global selectCompare(); every compared option renders its own ledger section).
 STATES = OPTIONS + ["compare"]
+# The options the "compare" state drives. Two is enough to prove the shared-inputs/per-option
+# split renders; the six-way case is the same code path with more rows.
+COMPARE_STATE_KEYS = ["balcony", "community"]
 
 VERIFY_DIR = ".verify"
 EVIDENCE_PATH = os.path.join(VERIFY_DIR, "evidence.json")
@@ -98,8 +101,8 @@ def build_driver(index_src: str, state: str) -> str:
     The probe's data-err carries any window error or shim throw, so the headless DOM dump alone
     tells us whether the page ran cleanly.
     """
-    select_js = ("selectCompare(['balcony','community']);" if state == "compare"
-                 else "selectOption(%r);" % state)
+    select_js = ("selectCompare([%s]);" % ",".join(repr(k) for k in COMPARE_STATE_KEYS)
+                 if state == "compare" else "selectOption(%r);" % state)
     shim = (
         "<script>\n"
         "window.__err='';\n"
@@ -146,14 +149,19 @@ def assert_render(state: str, dom: str) -> list[str]:
     if err:
         problems.append(f"JS error: {err}")
     if state == "compare":
-        # comparison view: the table renders, both rows are present, the focused row's ledger shows
+        # comparison view: the table renders, both rows are present, and EVERY compared option has
+        # its own ledger section — a comparison you can only refine one half of isn't one.
         if 'class="cmp-table"' not in dom:
             problems.append("comparison table missing (.cmp-table) — selectCompare did not render")
         for label in ("Balcony", "Community"):
             if label not in dom:
                 problems.append(f"comparison row missing: {label}")
+        for key in COMPARE_STATE_KEYS:
+            if f'data-sec="{key}"' not in dom:
+                problems.append(f"no refine section for the {key} row (details.opt-sec[data-sec="
+                                f"{key}]) — that row can't be refined without leaving the comparison")
         if 'class="step-label"' not in dom:
-            problems.append("focused row's ledger missing (.step-label) — compare detail did not render")
+            problems.append("compared options' ledgers missing (.step-label) — compare detail did not render")
     else:
         if 'class="big"' not in dom:
             problems.append("no headline figure rendered (.big missing) — result did not compute")
