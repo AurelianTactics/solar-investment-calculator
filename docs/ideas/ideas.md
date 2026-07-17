@@ -8,15 +8,21 @@
 * validate updated version
     DONE run tests pytest tests
     DONE basic web usage python -m http.server --directory web 8000     # then visit http://localhost:8000
-    LLM usage
-    explore the none community solar options
-    other notes from below
-    Questions
+    DONE explore the none community solar options
+    TEST LLM usage
+        DONE basic usage
+        cli usage
+            having a bug here
+    DONE Questions
         is there not a venv on this?
         is the usage correct? no un venv mentioned?
 
 # Fixes
 * cliking up and down should be scaled correctly. .01 or .1 for things that are fraction. $10 for thinks like monthly bill. 1 for things like years
+* getting an error when trying to test curl usage of the LLM server:
+    solar-investment-calculator> curl.exe -s -X POST http://127.0.0.1:8765/ask -H "Content-Type: application/json" `
+>>   -d '{"question": "What savings would I get with community solar when my bill is $150 a month?"}'
+{"detail":[{"type":"json_invalid","loc":["body",1],"msg":"JSON decode error","input":{},"ctx":{"error":"Expecting property name enclosed in double quotes"}}]}
 
 # To do
 
@@ -38,6 +44,8 @@
 * time of use with a battery might work, look into it
     * maybe for CMP, not sure about others
     * read wiki research
+
+* editing the config filters back into the text box
 
 * plan this out:
     * i'm not a huge fan of the layout, color scheme, text blobs etc. get a few different ideas for this

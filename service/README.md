@@ -8,26 +8,34 @@ arithmetic). Local-only by decision; deployment is out of scope.
 
 ## Setup (one time)
 
-Dependencies live in a uv venv created **outside the repo**, from the checked-in
-`requirements.txt` at the repo root:
+Dependencies live in a uv venv created **outside the repo** (central location so it's shared
+across git worktrees), from the checked-in `requirements.txt` at the repo root:
 
 ```powershell
-uv venv $env:USERPROFILE\.venvs\solar-calc
-uv pip install -r requirements.txt --python $env:USERPROFILE\.venvs\solar-calc\Scripts\python.exe
+uv venv $env:USERPROFILE\claude_code_repos\my-uv-envs\solar-calc
+uv pip install -r requirements.txt --python $env:USERPROFILE\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe
 ```
 
-The service needs an Anthropic API key. Claude Code's own login does **not** provide one — set
-the standard env var for the shell that runs the service (get a key at console.anthropic.com):
+The service needs an Anthropic API key (Claude Code's own login does **not** provide one — get a
+key at console.anthropic.com). Put it in a **`.env` file at the repo root** — the service loads it
+automatically on startup via `python-dotenv`, so you never type the key into the shell:
+
+```dotenv
+# .env  (repo root; gitignored)
+ANTHROPIC_API_KEY=<your key>
+```
+
+A real environment variable, if already set in the shell, wins over the `.env` value. So the
+old shell-var approach still works if you prefer it:
 
 ```powershell
-$env:ANTHROPIC_API_KEY = "<your key>"        # PowerShell, this session only
-# or persist it:  setx ANTHROPIC_API_KEY "<your key>"
+$env:ANTHROPIC_API_KEY = "<your key>"        # PowerShell, this session only — overrides .env
 ```
 
 ## Run
 
 ```powershell
-& $env:USERPROFILE\.venvs\solar-calc\Scripts\python.exe service\app.py
+& $env:USERPROFILE\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe service\app.py
 # -> http://127.0.0.1:8765   (port: SOLAR_AGENT_PORT)
 ```
 
@@ -53,6 +61,7 @@ back to the form flow. Configure:
 | `SOLAR_AGENT_SPEND_CAP_USD` | `5.0` | total spend ceiling |
 | `SOLAR_AGENT_LEDGER_PATH` | `service/.spend.json` | ledger location |
 | `SOLAR_AGENT_PORT` | `8765` | HTTP port |
+| `SOLAR_AGENT_ENV_FILE` | repo-root `.env` | which `.env` to auto-load on startup (missing file = no-op) |
 
 Reset the budget by deleting the ledger file (a deliberate act, on purpose).
 
@@ -69,7 +78,7 @@ Reset the budget by deleting the ledger file (a deliberate act, on purpose).
 ## Tests
 
 ```powershell
-& $env:USERPROFILE\.venvs\solar-calc\Scripts\python.exe -m pytest service\tests
+& $env:USERPROFILE\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe -m pytest service\tests
 ```
 
 Every test stubs the LLM (the `Agent(extractor=...)` seam) — no network, no key, no spend.

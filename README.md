@@ -19,7 +19,7 @@ one-time setup in [`service/README.md`](service/README.md) (uv venv outside the 
 `ANTHROPIC_API_KEY`), then:
 
 ```sh
-%USERPROFILE%\.venvs\solar-calc\Scripts\python.exe service\app.py    # serves http://127.0.0.1:8765
+%USERPROFILE%\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe service\app.py    # serves http://127.0.0.1:8765
 ```
 
 ## CLI

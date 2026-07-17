@@ -11,8 +11,8 @@ library only" rule is **retired** (2026-07-09) — do not resurrect it. Dependen
 **uv**: a venv created **outside the repo**, installed from the checked-in `requirements.txt`:
 
 ```sh
-uv venv %USERPROFILE%\.venvs\solar-calc          # one-time, outside the repo
-uv pip install -r requirements.txt --python %USERPROFILE%\.venvs\solar-calc\Scripts\python.exe
+uv venv %USERPROFILE%\claude_code_repos\my-uv-envs\solar-calc          # one-time, outside the repo
+uv pip install -r requirements.txt --python %USERPROFILE%\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe
 ```
 
 The core (`src/`) and verifier (`tools/`) stay stdlib-only by construction — only `service/` and
@@ -49,7 +49,7 @@ the CLI `--json` payload shape. Spend is capped server-side via a gitignored led
 the web page works fully without the service (that fallback is verifier-enforced).
 
 ```sh
-%USERPROFILE%\.venvs\solar-calc\Scripts\python.exe service\app.py   # run the service (port 8765)
+%USERPROFILE%\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe service\app.py   # run the service (port 8765)
 ```
 
 ## Active metric — run before reporting any calculation change done
