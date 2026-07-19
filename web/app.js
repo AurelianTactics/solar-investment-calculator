@@ -1,4 +1,4 @@
-// Solar investment calculator — web UI (question-first, all six option states).
+// Solar investment calculator — web UI (question-first, all seven option states).
 //
 // This JS is a FAITHFUL MIRROR of the Python source of truth (../src/*.py). On load it re-runs the
 // hand-verified worked example for EVERY option — including the two combos — via verifyAll(); if
@@ -6,13 +6,21 @@
 // numbers. The Python suite (pytest tests) remains the metric.
 //
 // Layout contract with tools/verify_web.py: selectOption(key) stays a GLOBAL function accepting
-// all six option keys ("community", "balcony", "rooftop", "battery", "battery+rooftop",
-// "battery+balcony"); selectCompare(keys) stays a GLOBAL entering the side-by-side comparison
-// view (renders `.cmp-table`; the focused row's ledger renders `.step-label` into #detail);
-// results render `.big` and `.step-label`; the question box is `#question`; the fallback notice
-// is `#notice.show` and its text always contains "without the agent". The headline renders into
-// the sticky `#result` card; steps + assumptions render into `#detail` inside the "Refine this
-// estimate" drawer; the tighter-estimate tip renders into `#tip-body` under the Ask box.
+// all seven option keys ("community", "balcony", "rooftop", "battery", "plugin-battery",
+// "battery+rooftop", "battery+balcony"); selectCompare(keys) stays a GLOBAL entering the side-by-side comparison
+// view (renders `.cmp-table`, plus one `details.opt-sec` ledger section per compared option in
+// #detail, each rendering `.step-label`); results render `.big` and `.step-label`; the question
+// box is `#question`; the fallback notice is `#notice.show` and its text always contains "without
+// the agent". The headline renders into the sticky `#result` card; steps + assumptions render
+// into `#detail` inside the "Refine this estimate" drawer; the tighter-estimate tip renders into
+// `#tip-body` under the Ask box.
+//
+// Refining vs. comparing is ONE drawer, split by what an edit is allowed to touch:
+//   * shared inputs (#bill, #annual-usage, #shared-assumptions) describe YOUR situation and drive
+//     every option on screen — in compare mode an edit there moves every row at once;
+//   * per-option ledgers (#detail) describe ONE option and move only that option's row.
+// A key is shared or per-option, never both: SHARED_KEYS are lifted out of the ledgers while
+// comparing, so there is never a second control editing the same number.
 
 const TAGS = {
   DEFAULT_SOURCED: "default (sourced)",
@@ -147,19 +155,91 @@ function computeRooftop(p) {
   };
 }
 
+// --- TOU three-case engine (mirror of src/tou.py) --------------------------
+// The master equation, delivery-only: savings_vs_flat = U × discount − residual × penalty.
+// Case 2 (under the 15.8% line, "gravy"): baseline is TOU-alone, the battery earns only the
+// incremental shifted kWh × penalty. Case 3 (over the line, "rescue"): baseline is FLAT ($0),
+// the battery earns the whole net vs. flat, floored at 0 (below 0 you just stay on flat).
+function touEvaluate({ annualUsageKwh, onPeakShare, residualCoverage, enrollmentDiscountPerKwh, residualPenaltyPerKwh }) {
+  if (annualUsageKwh < 0) throw new Error("annual_usage_kwh must be >= 0");
+  if (onPeakShare < 0 || onPeakShare > 1) throw new Error("on_peak_share must be in [0,1]");
+  if (residualCoverage < 0 || residualCoverage > 1) throw new Error("residual_coverage must be in [0,1]");
+  if (enrollmentDiscountPerKwh < 0) throw new Error("enrollment_discount_per_kwh must be >= 0");
+  if (residualPenaltyPerKwh <= 0) throw new Error("residual_penalty_per_kwh must be > 0");
+  const onPeakKwh = annualUsageKwh * onPeakShare;
+  const thresholdShare = enrollmentDiscountPerKwh / residualPenaltyPerKwh;
+  const underThreshold = onPeakShare < thresholdShare;
+  const enrollmentOnlySavings = annualUsageKwh * enrollmentDiscountPerKwh - onPeakKwh * residualPenaltyPerKwh;
+  const shiftedKwh = residualCoverage * onPeakKwh;
+  const residualKwh = onPeakKwh - shiftedKwh;
+  const savingsVsFlat = annualUsageKwh * enrollmentDiscountPerKwh - residualKwh * residualPenaltyPerKwh;
+  const kase = underThreshold ? 2 : 3;
+  const arbitrage = underThreshold ? shiftedKwh * residualPenaltyPerKwh : Math.max(0, savingsVsFlat);
+  return { onPeakKwh, thresholdShare, underThreshold, case: kase, enrollmentOnlySavings, shiftedKwh, residualKwh, savingsVsFlat, arbitrage };
+}
+
 // --- battery (mirror of src/battery.py) ------------------------------------
 function computeBattery(p) {
   if (p.federalItcPct < 0 || p.federalItcPct > 1) throw new Error("federal_itc_pct must be in [0,1]");
   const gross = p.usableKwh * p.installedCostPerKwh;
   const net = gross * (1 - p.federalItcPct);
-  const annualSavings = p.annualBillSavings + p.resilienceValuePerYear;
+  const tou = p.touEnrolled
+    ? touEvaluate({ annualUsageKwh: p.annualUsageKwh, onPeakShare: p.onPeakShare, residualCoverage: p.residualCoverage, enrollmentDiscountPerKwh: p.enrollmentDiscountPerKwh, residualPenaltyPerKwh: p.residualPenaltyPerKwh })
+    : null;
+  const touArbitrage = tou ? tou.arbitrage : 0;
+  const annualSavings = p.annualBillSavings + touArbitrage + p.resilienceValuePerYear;
+  const touLabel = tou
+    ? `TOU mode ON → Case ${tou.case} arbitrage (threshold: on-peak share < ${tou.thresholdShare.toFixed(4)})`
+    : "TOU mode off (default) → no arbitrage on a flat rate";
+  const touFormula = tou
+    ? (tou.case === 2 ? "case 2 (gravy): arb = shifted_kwh × residual_penalty_per_kwh"
+                      : "case 3 (rescue): arb = max(0, usage × discount − residual_kwh × penalty)")
+    : "tou_arbitrage = 0 (tou_enrolled = 0: staying on the flat rate)";
   return {
-    annualSavings, upfrontCost: net,
-    capital: capitalCompare({ upfrontCost: net, annualSavingsYear1: annualSavings, horizonYears: p.horizonYears, opportunityRate: p.opportunityRate, escalation: 0, degradation: 0 }),
+    annualSavings, upfrontCost: net, tou, touArbitrage,
+    capital: capitalCompare({ upfrontCost: net, annualSavingsYear1: annualSavings, horizonYears: p.horizonYears, opportunityRate: p.opportunityRate, escalation: 0, degradation: p.annualDegradation || 0 }),
     steps: [
       { n: 1, label: "Capacity & price → gross system cost", formula: "gross_cost = usable_kwh × installed_cost_per_kwh", value: gross, unit: "$" },
       { n: 2, label: "Federal credit → net upfront capital", formula: "net_cost = gross_cost × (1 − federal_itc_pct)", value: net, unit: "$" },
-      { n: 3, label: "Bill savings + resilience → annual value", formula: "annual_value = annual_bill_savings + resilience_value_per_year", value: annualSavings, unit: "$/yr" },
+      { n: 3, label: touLabel, formula: touFormula, value: touArbitrage, unit: "$/yr" },
+      { n: 4, label: "Bill savings + TOU arbitrage + resilience → annual value", formula: "annual_value = annual_bill_savings + tou_arbitrage + resilience_value_per_year", value: annualSavings, unit: "$/yr" },
+    ],
+  };
+}
+
+// --- plug-in / DIY DER battery (mirror of src/plugin_battery.py) ------------
+function computePluginBattery(p) {
+  if (p.installedCostPerKwh < 0) throw new Error("installed_cost_per_kwh must be >= 0");
+  if (p.cyclesPerYear <= 0) throw new Error("cycles_per_year must be > 0");
+  if (p.federalItcPct < 0 || p.federalItcPct > 1) throw new Error("federal_itc_pct must be in [0,1]");
+  const t = touEvaluate({ annualUsageKwh: p.annualUsageKwh, onPeakShare: p.onPeakShare, residualCoverage: p.residualCoverage, enrollmentDiscountPerKwh: p.enrollmentDiscountPerKwh, residualPenaltyPerKwh: p.residualPenaltyPerKwh });
+  const usableKwhNeeded = t.shiftedKwh / p.cyclesPerYear;
+  const gross = usableKwhNeeded * p.installedCostPerKwh;
+  const net = gross * (1 - p.federalItcPct);
+  const annualSavings = t.arbitrage + p.resilienceValuePerYear;
+  const breakEven = t.case === 2
+    ? p.valuePerUsableKwhYr * p.horizonYears
+    : (usableKwhNeeded > 0 ? t.arbitrage * p.horizonYears / usableKwhNeeded : 0);
+  const arbFormula = t.case === 2
+    ? "case 2 (gravy): arb = shifted_kwh × residual_penalty_per_kwh (baseline: TOU already wins)"
+    : "case 3 (rescue): arb = max(0, usage × discount − residual_kwh × penalty) (baseline: flat)";
+  const beFormula = t.case === 2
+    ? "break_even = value_per_usable_kwh_yr × horizon_years"
+    : "break_even = tou_arbitrage × horizon_years ÷ usable_kwh_needed";
+  return {
+    annualSavings, upfrontCost: net, tou: t, case: t.case, usableKwhNeeded, breakEvenCostPerKwh: breakEven,
+    capital: capitalCompare({ upfrontCost: net, annualSavingsYear1: annualSavings, horizonYears: p.horizonYears, opportunityRate: p.opportunityRate, escalation: 0, degradation: 0 }),
+    steps: [
+      { n: 1, label: "Usage × on-peak share → on-peak kWh (weekday 5–9 p.m.)", formula: "on_peak_kwh = annual_usage_kwh × on_peak_share", value: t.onPeakKwh, unit: "kWh/yr" },
+      { n: 2, label: `Threshold check → which TOU case you're in (under ${t.thresholdShare.toFixed(4)} on-peak = case 2 gravy; over = case 3 rescue)`, formula: "case = 2 if on_peak_share < enrollment_discount ÷ residual_penalty else 3", value: t.case, unit: "case" },
+      { n: 3, label: "Enrolling with NO battery (the Case-1 answer; > 0 means free money by enrolling)", formula: "enrollment_only = usage × enrollment_discount − on_peak_kwh × residual_penalty", value: t.enrollmentOnlySavings, unit: "$/yr" },
+      { n: 4, label: "Battery coverage → shifted on-peak kWh (the rest stays on-peak)", formula: "shifted_kwh = residual_coverage × on_peak_kwh", value: t.shiftedKwh, unit: "kWh/yr" },
+      { n: 5, label: "Shifted load ÷ cycles → battery size needed", formula: "usable_kwh_needed = shifted_kwh ÷ cycles_per_year", value: usableKwhNeeded, unit: "kWh" },
+      { n: 6, label: "Size × price → gross cost", formula: "gross_cost = usable_kwh_needed × installed_cost_per_kwh", value: gross, unit: "$" },
+      { n: 7, label: "Federal credit → net upfront capital (25D expired; no TPO for a self-install)", formula: "net_cost = gross_cost × (1 − federal_itc_pct)", value: net, unit: "$" },
+      { n: 8, label: `TOU arbitrage for your case (case ${t.case})`, formula: arbFormula, value: t.arbitrage, unit: "$/yr" },
+      { n: 9, label: "Break-even installed cost for this case (the shopping number)", formula: beFormula, value: breakEven, unit: "$/kWh" },
+      { n: 10, label: "Arbitrage + resilience → annual value", formula: "annual_value = tou_arbitrage + resilience_value_per_year", value: annualSavings, unit: "$/yr" },
     ],
   };
 }
@@ -210,6 +290,31 @@ function capitalDefaults() {
       S("Modeling choice: 25-year PV horizon", null, "Batteries warrant ~10 yr — that option overrides this.",
         "A modeling choice matching the 25-year performance warranty most panel manufacturers publish — the industry's own definition of a panel's dependable life."),
       "How many years of savings the comparison counts before it stops. 25 years is the length of a typical solar-panel performance warranty, so it's the standard planning life for PV. A longer horizon gives solar more years to pay off; a shorter one favors keeping the cash invested. Batteries use their own shorter 10-year horizon."),
+  };
+}
+
+// --- TOU arbitrage inputs (mirror of _tou_shared_assumptions()) -------------
+const WHAT_CMP_TOU = "Central Maine Power's own published tariff page for its optional residential Time-of-Use delivery rate (effective July 1, 2026). Utility rates are approved in public filings with the Maine PUC, so this is the authoritative statement of the on-peak, off-peak, and flat delivery prices the arithmetic uses.";
+const CMP_TOU_URL = "https://www.cmpco.com/time-of-use-delivery-rate";
+
+function touSharedDefaults() {
+  return {
+    annual_usage_kwh: A("annual_usage_kwh", "Your annual electricity usage", 6600, "kWh", TAGS.DEFAULT_SOURCED,
+      S("Typical CMP residential usage (~550 kWh/month)", null, "Scales the TOU enrollment discount (usage × $0.058120/kWh ceiling). Edit to your own annual kWh.",
+        "A modeling choice: ~550 kWh/month is the typical CMP residential figure used across the state's own rate documents. Replace it with the actual total from twelve months of your own bills."),
+      "How much electricity your home uses in a year. In the TOU model it scales the enrollment discount: every kWh you use earns the flat-vs-off-peak delivery discount just by being enrolled, so a bigger home has a bigger arbitrage ceiling. Your utility bill's usage history has the real number — use it."),
+    on_peak_share: A("on_peak_share", "Share of your usage during on-peak hours (weekday 5–9 p.m.)", 0.25, "fraction", TAGS.UNSOURCED, null,
+      "The fraction of your electricity used on weekdays between 5 and 9 p.m. — the single number that decides which TOU case you're in. Under 15.8%, the TOU rate beats the flat rate even with no battery (free money by enrolling); over it, the on-peak penalty (3.6× the flat rate) bites and a battery has to rescue you. Nobody can guess this for you: download your hourly usage from your utility's website and measure it. The 25% default is only a placeholder for a typical evening-heavy home."),
+    residual_coverage: A("residual_coverage", "Share of on-peak usage the battery can actually shift off-peak", 0.7, "fraction", TAGS.UNSOURCED, null,
+      "How much of your 5–9 p.m. load the battery can actually serve. A single-outlet plug-in unit covers whatever is plugged into it; a multi-circuit subpanel setup covers more. The hard part is winter electric heat — often the biggest on-peak load and exactly what a small battery can't carry — which is why this dial (0.5–0.9 is the plausible range) is the model's load-bearing unknown. No researched Maine figure has landed; 0.7 is a placeholder."),
+    enrollment_discount_per_kwh: A("enrollment_discount_per_kwh", "TOU enrollment discount per kWh (flat minus off-peak delivery, CMP)", 0.058120, "$/kWh", TAGS.DEFAULT_SOURCED,
+      S("CMP Rate TOU tariff (eff. Jul 1, 2026): $0.119590 flat − $0.061470 off-peak", CMP_TOU_URL,
+        "Versant's 'Home Eco' TOU (BHD Rate A-4 / MPD A-4M) has a much thinner spread — set this and the penalty so their difference matches its ~$0.101 (BHD) / ~$0.099 (MPD) peak-vs-off-peak gap; its on-peak runs only ~6% above flat, so enrolling there is nearly risk-free and works weekends too.", WHAT_CMP_TOU),
+      "What every kWh you use earns simply by being enrolled in the TOU rate, as long as it's bought off-peak: the flat delivery rate ($0.119590) minus the off-peak delivery rate ($0.061470). Multiply by your annual usage and you have the absolute ceiling on TOU savings — what a magic free battery covering everything would earn. Delivery-only: the supply price is the same on both rates and cancels out."),
+    residual_penalty_per_kwh: A("residual_penalty_per_kwh", "On-peak penalty per residual kWh (on-peak minus off-peak delivery, CMP)", 0.367366, "$/kWh", TAGS.DEFAULT_SOURCED,
+      S("CMP Rate TOU tariff (eff. Jul 1, 2026): $0.428836 on-peak − $0.061470 off-peak", CMP_TOU_URL,
+        "The threshold on-peak share (below which TOU beats flat with no battery) is discount ÷ penalty = 0.1582 — matching CMP's own '≥86% off-peak' guidance. Versant Home Eco's penalty is only ~$0.10 with on-peak ~6% above flat: thin arbitrage, near-zero enrollment risk.", WHAT_CMP_TOU),
+      "What every kWh you still buy during weekday 5–9 p.m. costs you versus buying it off-peak: the on-peak delivery rate ($0.428836, about 3.6× the flat rate) minus the off-peak rate ($0.061470). It's also what every kWh a battery SHIFTS off-peak avoids — but it is the penalty avoided, not the saving versus the flat rate, which is why the model never multiplies it by your whole usage."),
   };
 }
 
@@ -316,11 +421,12 @@ const OPTIONS = {
   },
   battery: {
     label: "Home Battery Storage",
-    blurb: "Bought for resilience, not ROI. With no federal credit and ~$0 Maine bill savings, the pure-economics NPV is strongly negative — by design.",
+    blurb: "Bought for resilience, not ROI. On the default flat rate with no owner-bought federal credit, the pure-economics NPV is strongly negative — by design. The one bill lever is the off-by-default TOU mode.",
     describe: (a) => `a ${a.usable_kwh.value} kWh home battery — bought for resilience; the ledger prices that honestly`,
-    followup: "what backup power through an outage is genuinely worth to you per year — it's the number that decides this one",
+    followup: "what backup power through an outage is genuinely worth to you per year — and, if you'd enroll in a TOU rate, your on-peak share (weekday 5–9 p.m.) from your utility's hourly data",
     defaults: () => {
       const c = capitalDefaults();
+      const t = touSharedDefaults();
       return {
         usable_kwh: A("usable_kwh", "Usable battery capacity", 13.5, "kWh", TAGS.DEFAULT_SOURCED,
           S("Tesla Powerwall 3 usable capacity (EnergySage)", "https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/", null,
@@ -329,25 +435,100 @@ const OPTIONS = {
         installed_cost_per_kwh: A("installed_cost_per_kwh", "Installed battery cost per kWh", 998, "$/kWh", TAGS.DEFAULT_SOURCED,
           S("EnergySage Marketplace average — $998/kWh (2026)", "https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/", "~$13,473 all-in for a 13.5 kWh Powerwall 3.", WHAT_ENERGYSAGE),
           "The installed price per kilowatt-hour of storage — hardware plus electrician, permits, and commissioning. Multiply by capacity for the sticker price. This number is what makes battery economics hard: at ~$1,000/kWh, a whole-home battery costs as much as a used car, while its yearly bill savings in Maine are close to zero."),
-        federal_itc_pct: A("federal_itc_pct", "Federal tax credit on battery cost", 0.0, "fraction", TAGS.DEFAULT_SOURCED,
-          S("Battery 25D credit EXPIRED Dec 31, 2025 (was 30%)", "https://homes.rewiringamerica.org/federal-incentives/25d-rooftop-solar-tax-credit", null, WHAT_REWIRING),
-          "The share of the battery's cost the federal government returns as a tax credit. The 30% residential credit (25D) covered home batteries of 3 kWh or more until it expired December 31, 2025 — so a 2026 buyer gets zero. That removed the single biggest subsidy from home-battery economics."),
-        annual_bill_savings: A("annual_bill_savings", "Annual electricity-bill savings from the battery", 0.0, "$", TAGS.DEFAULT_SOURCED,
-          S("Modeling choice: ~$0 for a typical Maine customer", null, "No strong residential TOU arbitrage; NEB already credits export at retail.",
-            "A modeling choice this calculator states openly: with flat residential rates and retail-value NEB credits, there is no price spread for a battery to earn. The reasoning is in the note; there is no external study behind the $0 — it follows from how Maine rates are structured."),
-          "Money the battery saves on the bill itself each year — by storing cheap power and using it when power is expensive. Maine residential rates are mostly flat (no big day/night price spread), and rooftop export is already credited at retail value, so there's essentially nothing to arbitrage: the honest default is $0."),
+        federal_itc_pct: A("federal_itc_pct", "Federal credit reaching you (owner-bought 0; lease/PPA pass-through unknown)", 0.0, "fraction", TAGS.DEFAULT_SOURCED,
+          S("25D EXPIRED Dec 31, 2025 (owner-bought: $0); 48E survives via lease/PPA", "https://homes.rewiringamerica.org/federal-incentives/25d-rooftop-solar-tax-credit",
+            "48E covers standalone storage begun before 2033 (FEOC content rules apply: ≥55% non-PFE in 2026); the installer claims it on Form 3468 — the homeowner never files Form 5695. Pass-through % to a Maine homeowner is unsourced.", WHAT_REWIRING),
+          "The share of the battery's cost that federal incentives actually return to you. This is now a two-path financing switch, not a single rate. Owner-bought (cash or loan): the 30% residential credit (25D) expired December 31, 2025, so a 2026 buyer gets zero — the default. Lease/PPA (third-party-owned): the commercial 48E credit survives for standalone storage — the provider claims up to 30% and passes some of it through as lower payments — but how much reaches a Maine homeowner is an open research question, so don't pencil in a number you weren't quoted. Set this above 0 only to model a pass-through you can verify in an actual lease offer."),
+        annual_bill_savings: A("annual_bill_savings", "Annual electricity-bill savings from the battery (outside the TOU mode)", 0.0, "$", TAGS.DEFAULT_SOURCED,
+          S("Modeling choice: ~$0 on the default flat rate (arbitrage lives in the TOU mode)", null,
+            "CMP's optional Rate TOU (eff. Jul 1, 2026) is a genuine but conditional, delivery-only arbitrage — modeled by the off-by-default tou_enrolled mode, not by this number. On the flat rate there is no spread; NEB already credits rooftop export at retail.",
+            "A modeling choice this calculator states openly: with a flat rate and retail-value NEB credits, there is no price spread for a battery to earn outside the optional TOU rate. The reasoning is in the note; the TOU rates themselves are sourced on the arbitrage assumptions."),
+          "Money the battery saves on the bill itself each year, outside the TOU arbitrage modeled separately. On the default flat rate (CMP Rate A: delivery AND supply both flat) there is no intraday price spread, and rooftop export is already credited at retail value under net energy billing — so the honest default is $0. Residential TOU arbitrage DOES exist, but it's conditional and delivery-only, so it lives in its own switch (tou_enrolled) rather than being buried here."),
+        tou_enrolled: A("tou_enrolled", "Enrolled in the optional TOU delivery rate? (0 = no, 1 = yes)", 0.0, "0 or 1", TAGS.DEFAULT_SOURCED,
+          S("Modeling choice: TOU arbitrage is an optional, off-by-default mode", null,
+            "Enrollment is a choice, not the default — and CMP's spread is fat but conditional (needs ~86% off-peak), so the mode ships off. Versant's Home Eco is thin but nearly risk-free.", WHAT_MODELING_CHOICE),
+          "Whether you've switched from the default flat delivery rate to the optional time-of-use rate (CMP 'Rate TOU', Versant 'Home Eco'). Off by default because most homes are on the flat rate, where a battery has nothing to arbitrage. Turn it on (set to 1) and the battery faces the three-case TOU math: under a 15.8% on-peak share the rate alone wins and the battery adds gravy; over it, the battery has to rescue the enrollment from the 3.6× on-peak penalty."),
+        annual_usage_kwh: t.annual_usage_kwh,
+        on_peak_share: t.on_peak_share,
+        residual_coverage: t.residual_coverage,
+        enrollment_discount_per_kwh: t.enrollment_discount_per_kwh,
+        residual_penalty_per_kwh: t.residual_penalty_per_kwh,
         resilience_value_per_year: A("resilience_value_per_year", "What backup power during outages is worth to you per year", 200, "$", TAGS.UNSOURCED, null,
           "What not losing power in an outage is worth to YOU each year — the real reason Mainers buy batteries. It's inherently personal: spoiled food, a sump pump that must run, medical equipment, working from home through an ice storm. It's kept separate from bill savings so the pure-economics verdict stays honest. No researched number exists; $200 is a placeholder meant to make you think about your own answer."),
+        annual_degradation: A("annual_degradation", "Annual battery capacity fade", 0.03, "fraction", TAGS.DEFAULT_SOURCED,
+          S("Modeling choice: ~3%/yr LFP capacity fade (1–4%/yr range)", null,
+            "Bracketed by the LFP literature and the 70%@10yr warranty point; a measured Powerwall 3 curve (plus a Maine cold-climate adjustment) would replace it.", WHAT_MODELING_CHOICE),
+          "How much usable capacity the battery loses each year as its cells age. LFP chemistry (Powerwall 3) fades roughly 1–4% a year, and the fade continues past the warranty's 70%-at-10-years floor. The model trims each future year's value by this rate, the battery equivalent of panel degradation. Deep-cycling daily to chase TOU savings pushes you toward the fast end."),
+        warranty_years: A("warranty_years", "Warranty term (the guarantee floor — not the expected life)", 10, "years", TAGS.DEFAULT_SOURCED,
+          S("Tesla Powerwall warranty — 10 years, 70% capacity retention", "https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/",
+            "Unlimited cycles for solar use — a signal Tesla doesn't expect death at year 10. The warranty is the risk floor; the horizon models the expected life.",
+            "The manufacturer's own warranty terms, as reported in EnergySage's marketplace review — the industry's definition of the battery's guaranteed (not expected) life."),
+          "How long the manufacturer guarantees the battery (Tesla: 70% capacity retention at 10 years, unlimited cycles for a solar home). Like a car warranty, it's a floor, not a life expectancy — which is why the analysis horizon below is longer. This number doesn't enter the math; it's here so the risk window (years beyond warranty are on you) stays visible next to the service-life horizon the dollars are computed over."),
         opportunity_rate: c.opportunity_rate,
-        horizon_years: A("horizon_years", "Analysis horizon (battery warranty life)", 10, "years", TAGS.DEFAULT_SOURCED,
-          S("Tesla Powerwall warranty — 10 years (70% retention)", "https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/", null,
-            "The manufacturer's own warranty terms (Tesla guarantees 70% capacity retention at 10 years), as reported in EnergySage's marketplace review — the industry's definition of the battery's dependable life."),
-          "How many years of battery value the comparison counts — set to the 10-year warranty, after which capacity is no longer guaranteed. That's much shorter than the 25-year panel horizon, which is a big part of why battery economics look worse than PV: the same upfront cost has fewer years to earn its keep."),
+        horizon_years: A("horizon_years", "Analysis horizon (expected battery service life)", 13, "years", TAGS.DEFAULT_SOURCED,
+          S("Expected Powerwall 3 service life ~12–15 yr (default 13); warranty is 10", "https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/",
+            "Warranty (10 yr, 70% retention) ≠ life. Model the ~13-yr expected life with continued ~3%/yr fade; keep warranty_years as the separate risk window.",
+            "A modeling choice anchored to the manufacturer's warranty terms and LFP-lifespan reporting (EnergySage review plus battery-life explainers): the warranty floor is 10 years, the reported expected service life ~12–15."),
+          "How many years of battery value the comparison counts — set to the expected service life of an LFP battery like the Powerwall 3 (~12–15 years, default 13), not the 10-year warranty, which is a guarantee floor the way a car warranty is. Still much shorter than the 25-year panel horizon. Honest caveat: with ~$0 bill savings the extra years add ~$0 each, so the longer horizon nudges NPV without flipping the resilience-not-ROI verdict — its real effect is that you shouldn't budget a year-10 replacement."),
       };
     },
     run: (a) => computeBattery({
       usableKwh: a.usable_kwh.value, installedCostPerKwh: a.installed_cost_per_kwh.value, federalItcPct: a.federal_itc_pct.value,
       annualBillSavings: a.annual_bill_savings.value, resilienceValuePerYear: a.resilience_value_per_year.value,
+      horizonYears: a.horizon_years.value, opportunityRate: a.opportunity_rate.value,
+      annualDegradation: a.annual_degradation.value, touEnrolled: !!a.tou_enrolled.value,
+      annualUsageKwh: a.annual_usage_kwh.value, onPeakShare: a.on_peak_share.value,
+      residualCoverage: a.residual_coverage.value,
+      enrollmentDiscountPerKwh: a.enrollment_discount_per_kwh.value,
+      residualPenaltyPerKwh: a.residual_penalty_per_kwh.value,
+    }),
+  },
+  "plugin-battery": {
+    label: "Plug-In / DIY Battery",
+    blurb: "A buy-and-plug battery arbitraging CMP's optional TOU rate. One equation, three cases: under a 15.8% on-peak share enrolling alone is free money (case 1) and a battery adds gravy (case 2); over it, the battery must rescue you from the 3.6× on-peak penalty (case 3) — and a plug-in can't cover winter electric heat.",
+    describe: (a) => {
+      const threshold = a.enrollment_discount_per_kwh.value / a.residual_penalty_per_kwh.value;
+      return a.on_peak_share.value < threshold
+        ? `a plug-in TOU battery, Case 2 (gravy): you're under the ${(threshold * 100).toFixed(1)}% on-peak line, so enrolling alone already wins — the battery's shifted kWh are pure extra`
+        : `a plug-in TOU battery, Case 3 (rescue): you're over the ${(threshold * 100).toFixed(1)}% on-peak line, so the battery must claw back the on-peak penalty before TOU beats flat — and winter electric heat is the load it likely can't reach`;
+    },
+    followup: "your on-peak share — the fraction of your usage on weekdays 5–9 p.m., from your utility's hourly download — it alone decides which case you're in",
+    example: "I use 6,600 kWh a year and 25% of it is on weekday evenings — is a plug-in battery worth it?",
+    defaults: () => {
+      const c = capitalDefaults();
+      return {
+        ...touSharedDefaults(),
+        cycles_per_year: A("cycles_per_year", "Charge/discharge cycles per year (one per on-peak weekday)", 250, "cycles/yr", TAGS.DEFAULT_SOURCED,
+          S("Modeling choice: 250 weekday cycles/yr (CMP on-peak is weekdays 5–9 p.m.)", null,
+            "~52 weeks × 5 weekdays minus holidays. Derived from the CMP tariff's on-peak definition; the count itself is a stated modeling choice.", WHAT_MODELING_CHOICE),
+          "How many times a year the battery runs its daily routine: charge off-peak, discharge through the 5–9 p.m. window. On-peak hours exist only on non-holiday weekdays, so ~250 cycles a year is the ceiling. It also sizes the battery: the kWh you want shifted per year, divided by the cycles available to shift them, is the usable capacity you need to buy."),
+        value_per_usable_kwh_yr: A("value_per_usable_kwh_yr", "Arbitrage value per usable kWh of battery per year (Case 2)", 90.13, "$/kWh/yr", TAGS.DEFAULT_SOURCED,
+          S("CMP Rate TOU arithmetic: 250 × ($0.428836 − $0.061470/0.90) ≈ $90.13", CMP_TOU_URL,
+            "Exact algebra on the sourced tariff rates with a 0.90 round-trip efficiency. Break-even ≈ $901/kWh simple over 10 yr (~$633 at 7% NPV).", WHAT_CMP_TOU),
+          "What one kWh of battery capacity earns per year when every cycle is clean gravy (Case 2): 250 weekday cycles times the on-peak price avoided, net of the ~10% round-trip charging loss. Multiply by the analysis horizon and you get the Case-2 break-even installed cost — about $901/kWh over 10 years — which is why a cheap plug-in unit clears it and a $998/kWh Powerwall doesn't."),
+        installed_cost_per_kwh: A("installed_cost_per_kwh", "Plug-in battery cost per usable kWh", 600, "$/kWh", TAGS.UNSOURCED, null,
+          "What a buy-and-plug battery costs per usable kWh. Ballparks: consumer power stations (EcoFlow, Bluetti, Anker) run roughly $500–700/kWh; a DIY LFP battery plus inverter more like $300–500/kWh. That range is the whole verdict in Case 3, where the break-even price falls as your on-peak share worsens — only the cheap end clears it. No verbatim price page has been ingested yet, so $600 is a placeholder: price a real unit before deciding."),
+        federal_itc_pct: A("federal_itc_pct", "Federal tax credit on battery cost", 0.0, "fraction", TAGS.DEFAULT_SOURCED,
+          S("25D expired Dec 31, 2025; no third-party-ownership path for a self-install", "https://homes.rewiringamerica.org/federal-incentives/25d-rooftop-solar-tax-credit",
+            "A 2026 buy-and-plug buyer gets $0 federal credit.", WHAT_REWIRING),
+          "The share of the cost the federal government returns as a tax credit: zero. The residential credit (25D) expired December 31, 2025, and the surviving commercial path (48E) reaches homeowners only through a lease/PPA provider — which a self-installed plug-in battery doesn't have. Unlike the installed battery, there's no financing structure that changes this answer."),
+        resilience_value_per_year: A("resilience_value_per_year", "What backup power during outages is worth to you per year", 200, "$", TAGS.UNSOURCED, null,
+          "What not losing power in an outage is worth to YOU each year. A plug-in battery doubles as portable backup — fridge, phones, a sump pump through an ice storm — which for many buyers is the real reason to own one, with the TOU arbitrage as the kicker. Kept separate from the arbitrage so the pure-economics verdict stays honest. No researched number exists; $200 is a placeholder meant to make you think about your own answer."),
+        opportunity_rate: c.opportunity_rate,
+        horizon_years: A("horizon_years", "Analysis horizon (plug-in battery service life)", 10, "years", TAGS.DEFAULT_SOURCED,
+          S("Modeling choice: 10-yr consumer power-station horizon", null,
+            "A stated planning life, not a warranty citation — plug-in units typically warrant 2–5 yr; LFP cell cycle life supports ~10 at one cycle/day.", WHAT_MODELING_CHOICE),
+          "How many years of value the comparison counts — a stated ~10-year service life for a consumer power station cycled daily. Shorter than the installed battery's 13-year horizon because the hardware is cheaper and the daily TOU cycling works it harder. The Case-2 break-even scales directly with this: ~$901/kWh at 10 years, ~$1,172 at 13."),
+      };
+    },
+    run: (a) => computePluginBattery({
+      annualUsageKwh: a.annual_usage_kwh.value, onPeakShare: a.on_peak_share.value,
+      residualCoverage: a.residual_coverage.value, installedCostPerKwh: a.installed_cost_per_kwh.value,
+      cyclesPerYear: a.cycles_per_year.value,
+      enrollmentDiscountPerKwh: a.enrollment_discount_per_kwh.value,
+      residualPenaltyPerKwh: a.residual_penalty_per_kwh.value,
+      valuePerUsableKwhYr: a.value_per_usable_kwh_yr.value, federalItcPct: a.federal_itc_pct.value,
+      resilienceValuePerYear: a.resilience_value_per_year.value,
       horizonYears: a.horizon_years.value, opportunityRate: a.opportunity_rate.value,
     }),
   },
@@ -381,6 +562,11 @@ function comboRun(pvKey) {
       federalItcPct: a.battery_federal_itc_pct.value, annualBillSavings: a.battery_annual_bill_savings.value,
       resilienceValuePerYear: a.battery_resilience_value_per_year.value,
       horizonYears: a.battery_horizon_years.value, opportunityRate: a.opportunity_rate.value,
+      annualDegradation: a.battery_annual_degradation.value, touEnrolled: !!a.battery_tou_enrolled.value,
+      annualUsageKwh: a.battery_annual_usage_kwh.value, onPeakShare: a.battery_on_peak_share.value,
+      residualCoverage: a.battery_residual_coverage.value,
+      enrollmentDiscountPerKwh: a.battery_enrollment_discount_per_kwh.value,
+      residualPenaltyPerKwh: a.battery_residual_penalty_per_kwh.value,
     });
     return computeCombo(pvKey, pvR, btR, a.battery_pv_interaction_value_per_year.value);
   };
@@ -412,21 +598,43 @@ function verifyAll() {
   if (!(close(b.annualSavings, 388.8) && close(b.capital.simplePaybackYears, 1500 / 388.8, 1e-6))) return "balcony";
   const r = computeRooftop({ capacityKw: 5.5, specificYield: 1200, installedCostPerW: 2.95, federalItcPct: 0, creditValuePerKwh: 0.27, annualUsageKwh: 6600, offsetCapFraction: 1.0, horizonYears: 25, opportunityRate: 0.07, escalation: 0, degradation: 0 });
   if (!(close(r.annualSavings, 1782) && close(r.upfrontCost, 16225) && close(r.capital.simplePaybackYears, 16225 / 1782, 1e-6))) return "rooftop";
-  const bt = computeBattery({ usableKwh: 13.5, installedCostPerKwh: 998, federalItcPct: 0, annualBillSavings: 0, resilienceValuePerYear: 200, horizonYears: 10, opportunityRate: 0.07 });
-  if (!(close(bt.upfrontCost, 13473) && close(bt.annualSavings, 200) && bt.capital.npv < 0)) return "battery";
+  // battery worked example (tests/test_battery.py): 13-yr service life, 3%/yr fade, TOU off.
+  const bt = computeBattery({ usableKwh: 13.5, installedCostPerKwh: 998, federalItcPct: 0, annualBillSavings: 0, resilienceValuePerYear: 200, horizonYears: 13, opportunityRate: 0.07, annualDegradation: 0.03, touEnrolled: false });
+  if (!(close(bt.upfrontCost, 13473) && close(bt.annualSavings, 200) && bt.capital.npv < 0
+        && close(bt.capital.yearly[12].savings, 200 * Math.pow(0.97, 12)))) return "battery";
+  // TOU mode Case 3 (6,600 kWh, 25% on-peak, 70% coverage): arb = 383.592 - 181.84617 = 201.74583.
+  const btTou = computeBattery({ usableKwh: 13.5, installedCostPerKwh: 998, federalItcPct: 0, annualBillSavings: 0, resilienceValuePerYear: 200, horizonYears: 13, opportunityRate: 0.07, annualDegradation: 0.03, touEnrolled: true, annualUsageKwh: 6600, onPeakShare: 0.25, residualCoverage: 0.7, enrollmentDiscountPerKwh: 0.058120, residualPenaltyPerKwh: 0.367366 });
+  if (!(btTou.tou.case === 3 && close(btTou.touArbitrage, 201.74583, 1e-5)
+        && close(btTou.annualSavings, 401.74583, 1e-5))) return "battery";
 
-  // battery+rooftop worked example (tests/test_combo.py): flat streams -> exact additivity.
-  const br = computeCombo("rooftop", r, bt, 0);
+  // plugin-battery worked example (tests/test_plugin_battery.py): defaults are Case 3 (rescue).
+  const pbArgs = { annualUsageKwh: 6600, onPeakShare: 0.25, residualCoverage: 0.7, installedCostPerKwh: 600, cyclesPerYear: 250, enrollmentDiscountPerKwh: 0.058120, residualPenaltyPerKwh: 0.367366, valuePerUsableKwhYr: 90.13, federalItcPct: 0, resilienceValuePerYear: 200, horizonYears: 10, opportunityRate: 0.07 };
+  const pb = computePluginBattery(pbArgs);
+  if (!(pb.case === 3 && close(pb.usableKwhNeeded, 4.62) && close(pb.upfrontCost, 2772)
+        && close(pb.annualSavings, 401.74583, 1e-5)
+        && close(pb.breakEvenCostPerKwh, 201.74583 * 10 / 4.62, 1e-4))) return "plugin-battery";
+  // Case 2 (10% on-peak): incremental arb 462 x 0.367366; break-even = 90.13 x 10 = $901.3/kWh.
+  const pb2 = computePluginBattery({ ...pbArgs, onPeakShare: 0.10 });
+  if (!(pb2.case === 2 && close(pb2.tou.arbitrage, 169.723092, 1e-5)
+        && close(pb2.breakEvenCostPerKwh, 901.3, 1e-6))) return "plugin-battery";
+  // The brief's Case-3 depth-table anchor: 10,000 kWh, 16% on-peak, full coverage -> 6.4 kWh
+  // needed, break-even $908.125/kWh.
+  const pb3 = computePluginBattery({ ...pbArgs, annualUsageKwh: 10000, onPeakShare: 0.16, residualCoverage: 1.0 });
+  if (!(close(pb3.usableKwhNeeded, 6.4) && close(pb3.breakEvenCostPerKwh, 908.125, 1e-3))) return "plugin-battery";
+
+  // battery+rooftop worked example (tests/test_combo.py): flat battery stream -> exact additivity.
+  const btFlat = computeBattery({ usableKwh: 13.5, installedCostPerKwh: 998, federalItcPct: 0, annualBillSavings: 0, resilienceValuePerYear: 200, horizonYears: 13, opportunityRate: 0.07, annualDegradation: 0, touEnrolled: false });
+  const br = computeCombo("rooftop", r, btFlat, 0);
   if (!(close(br.upfrontCost, 29698) && close(br.annualSavings, 1982)
         && close(br.capital.simplePaybackYears, 29698 / 1982, 1e-6)
-        && close(br.capital.npv, r.capital.npv + bt.capital.npv, 1e-6))) return "battery+rooftop";
-  // horizon honesty with LIVE escalation/degradation: year 11 = PV-only cashflow.
+        && close(br.capital.npv, r.capital.npv + btFlat.capital.npv, 1e-6))) return "battery+rooftop";
+  // horizon honesty with LIVE escalation/degradation: year 14 = PV-only cashflow (battery ends at 13).
   const rLive = computeRooftop({ capacityKw: 5.5, specificYield: 1200, installedCostPerW: 2.95, federalItcPct: 0, creditValuePerKwh: 0.27, annualUsageKwh: 6600, offsetCapFraction: 1.0, horizonYears: 25, opportunityRate: 0.07, escalation: 0.03, degradation: 0.005 });
   const brLive = computeCombo("rooftop", rLive, bt, 0);
-  if (!close(brLive.capital.yearly[10].savings, rLive.capital.yearly[10].savings, 1e-6)) return "battery+rooftop";
+  if (!close(brLive.capital.yearly[13].savings, rLive.capital.yearly[13].savings, 1e-6)) return "battery+rooftop";
 
   // battery+balcony worked example: 1500 + 13473 upfront; 388.8 + 200 year-1.
-  const bb = computeCombo("balcony", b, bt, 0);
+  const bb = computeCombo("balcony", b, btFlat, 0);
   if (!(close(bb.upfrontCost, 14973) && close(bb.annualSavings, 588.8)
         && close(bb.capital.simplePaybackYears, 14973 / 588.8, 1e-6))) return "battery+balcony";
   return null;
@@ -439,12 +647,16 @@ const num = (x) => x.toLocaleString("en-US", { maximumFractionDigits: 0 });
 function tagClass(tag) { return tag === TAGS.UNSOURCED ? "tag tag-unsourced" : tag === TAGS.USER_PROVIDED ? "tag tag-user" : "tag tag-sourced"; }
 
 // R4 toggle state machine. Valid states: community | battery | rooftop | balcony |
-// battery+rooftop | battery+balcony. Community is exclusive; rooftop+balcony is not offered;
-// deselecting down to zero re-selects community.
+// plugin-battery | battery+rooftop | battery+balcony. Community and plugin-battery stand alone;
+// rooftop+balcony is not offered; deselecting down to zero re-selects community.
 let activeParts = new Set(["community"]);
 let currentOption = "community";
 let assumptions = OPTIONS.community.defaults();
 let billEdited = false;
+// Did the USER put the usage number in the box, or is the box just mirroring an option's sourced
+// default? Only a user's number may override; a mirrored default must never follow you onto an
+// option that would have derived usage differently (community derives it from the bill).
+let usageEdited = false;
 
 // Comparison mode: null = single-option view; otherwise the ordered option keys being compared.
 // Each compared option keeps its OWN assumptions dict; the shared inputs (#bill, #annual-usage)
@@ -452,11 +664,29 @@ let billEdited = false;
 // they can't go stale against each other.
 let compareKeys = null;
 let compareAssumptions = null;
+// Which per-option ledger sections are expanded (compare mode). Kept across re-renders so an
+// edit doesn't collapse the section you're editing, or a sibling you opened to read against it.
+let openSections = new Set();
 
-function exitCompare() { compareKeys = null; compareAssumptions = null; }
+const inCompare = () => compareKeys !== null;
+
+// Assumptions that describe YOUR situation rather than one option's design, so a comparison is
+// only honest if every row uses the same number. While comparing, these are lifted out of the
+// per-option ledgers into the shared block and fan out to every compared option on edit.
+// `opportunity_rate` is the load-bearing one: NPVs computed at different discount rates aren't
+// comparable at all. (`annual_usage_kwh` is shared too, but via the #annual-usage box below.)
+const SHARED_KEYS = ["opportunity_rate"];
+
+function exitCompare() { compareKeys = null; compareAssumptions = null; openSections = new Set(); }
+
+// The dicts a shared input must write to: every compared option, or just the current one.
+function activeDicts() {
+  return inCompare() ? compareKeys.map((k) => compareAssumptions[k]) : [assumptions];
+}
 
 function stateKey() {
   if (activeParts.has("community")) return "community";
+  if (activeParts.has("plugin-battery")) return "plugin-battery";
   const hasBattery = activeParts.has("battery");
   if (hasBattery && activeParts.has("rooftop")) return "battery+rooftop";
   if (hasBattery && activeParts.has("balcony")) return "battery+balcony";
@@ -464,19 +694,14 @@ function stateKey() {
 }
 
 function toggleOption(part) {
-  if (compareKeys) {              // clicking a toggle exits comparison into that single option
-    exitCompare();
-    activeParts = new Set([part]);
-    applyState();
-    return;
-  }
-  if (part === "community") {
-    activeParts = new Set(["community"]);
+  if (part === "community" || part === "plugin-battery") {
+    activeParts = new Set([part]);                   // both stand alone (no pairings offered)
   } else if (activeParts.has(part)) {
     activeParts.delete(part);
     if (activeParts.size === 0) activeParts = new Set(["community"]); // deselect-to-zero -> default
   } else {
     activeParts.delete("community");                 // capital options clear community
+    activeParts.delete("plugin-battery");            // ...and the standalone plug-in battery
     if (part === "rooftop") activeParts.delete("balcony");   // rooftop+balcony not offered
     if (part === "balcony") activeParts.delete("rooftop");
     activeParts.add(part);
@@ -491,36 +716,180 @@ function selectOption(key) {  // GLOBAL — the deterministic verifier's driver 
 }
 
 // GLOBAL (verifier contract) — enter the side-by-side comparison view over 2+ option keys.
-// Every row recomputes live from the shared inputs; clicking a row focuses its full ledger
-// (steps + assumptions) in the refine drawer, where edits apply to that row only.
+// Every row recomputes live from the shared inputs; each compared option ALSO gets its own
+// ledger section in the drawer, so any row can be refined without leaving the comparison.
 function selectCompare(keys, focusKey) {
   compareKeys = keys.slice();
   compareAssumptions = {};
   for (const k of compareKeys) compareAssumptions[k] = OPTIONS[k].defaults();
-  currentOption = focusKey || compareKeys[0];
+  currentOption = focusKey && compareKeys.includes(focusKey) ? focusKey : compareKeys[0];
   assumptions = compareAssumptions[currentOption];
-  syncToggles();
-  const billCard = document.getElementById("bill-row");
-  if (billCard) billCard.style.display = compareKeys.some((k) => OPTIONS[k].needsBill) ? "block" : "none";
-  recompute();
+  openSections = new Set([currentOption]);
+  afterStateChange();
+}
+
+// Swap which options are being compared WITHOUT discarding the edits made to the survivors —
+// dropping rooftop from a three-way compare must not silently reset the battery row you tuned.
+function toggleCompareKey(key) {
+  const next = compareKeys.includes(key)
+    ? compareKeys.filter((k) => k !== key)
+    : [...compareKeys, key];
+  if (next.length < 2) return selectOption(next[0] || key);  // one option isn't a comparison
+  const kept = compareAssumptions;
+  compareKeys = next;
+  compareAssumptions = {};
+  for (const k of next) compareAssumptions[k] = kept[k] || OPTIONS[k].defaults();
+  if (!next.includes(currentOption)) currentOption = next[0];
+  assumptions = compareAssumptions[currentOption];
+  openSections = new Set([...openSections].filter((k) => next.includes(k)));
+  if (!openSections.size) openSections.add(currentOption);
+  afterStateChange();
+}
+
+// Enter/leave comparison from the mode switch. Entering seeds a second option so the user lands
+// on an actual comparison rather than an empty picker; community is the natural comparator
+// (it's the zero-capital baseline every capital option has to beat).
+function setMode(mode) {
+  if (mode === "compare") {
+    if (inCompare()) return;
+    selectCompare(currentOption === "community" ? ["community", "rooftop"] : [currentOption, "community"],
+                  currentOption);
+  } else {
+    if (inCompare()) selectOption(currentOption);
+  }
 }
 
 function applyState() {
   currentOption = stateKey();
   assumptions = OPTIONS[currentOption].defaults();
-  syncToggles();
-  const billCard = document.getElementById("bill-row");
-  if (billCard) billCard.style.display = OPTIONS[currentOption].needsBill ? "block" : "none";
+  afterStateChange();
+}
+
+// One path out of every state change: the pickers, the shared block, and the shared inputs'
+// reach all follow from (compareKeys, currentOption) — never set piecemeal at each call site.
+// The shared inputs are re-applied FIRST, because a state change rebuilds assumption dicts from
+// defaults and your bill/usage must survive switching options.
+function afterStateChange() {
+  syncPickers();
+  applyUsageInput();
+  syncSharedInputs();
   recompute();
 }
 
-function syncToggles() {
-  document.querySelectorAll("button.toggle").forEach((btn) => {
-    const part = btn.getAttribute("data-part");
-    const on = !compareKeys && activeParts.has(part);
+function syncPickers() {
+  const cmp = inCompare();
+  document.getElementById("single-picker").hidden = cmp;
+  document.getElementById("compare-picker").hidden = !cmp;
+  document.querySelectorAll("button.mode").forEach((btn) => {
+    const on = (btn.getAttribute("data-mode") === "compare") === cmp;
     btn.classList.toggle("active", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
   });
+  document.querySelectorAll("button.toggle[data-part]").forEach((btn) => {
+    const on = !cmp && activeParts.has(btn.getAttribute("data-part"));
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  document.querySelectorAll("button.toggle[data-cmp-key]").forEach((btn) => {
+    const on = cmp && compareKeys.includes(btn.getAttribute("data-cmp-key"));
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+// --- shared inputs ----------------------------------------------------------
+// `annual_usage_kwh` is carried as an assumption by rooftop (and its combo) but as a ctx override
+// by community, which derives usage from the bill. The #annual-usage box is the ONE editor for
+// both readings, so it's lifted out of every ledger — see ledgerSkipKeys().
+const USAGE_KEY = "annual_usage_kwh";
+
+function usageDicts() { return activeDicts().filter((d) => d[USAGE_KEY]); }
+function optionKeysOnScreen() { return inCompare() ? compareKeys : [currentOption]; }
+function anyNeedsBill() { return optionKeysOnScreen().some((k) => OPTIONS[k].needsBill); }
+
+function syncSharedInputs() {
+  const cmp = inCompare();
+  document.getElementById("shared-head").hidden = !cmp;
+  document.getElementById("shared-note").hidden = !cmp;
+  document.getElementById("bill-row").style.display = anyNeedsBill() ? "block" : "none";
+  // Usage only matters where something reads it: community (bill -> usage) or a PV option
+  // carrying annual_usage_kwh. Balcony and a lone battery ignore it — don't ask for it.
+  document.getElementById("usage-row").style.display =
+    anyNeedsBill() || usageDicts().length ? "block" : "none";
+  syncUsageBox();
+  renderSharedAssumptions();
+}
+
+// Show what's actually in force: where an option carries annual_usage_kwh, the box mirrors that
+// assumption — tag, source and all — instead of sitting empty while a sourced 6,600 kWh default
+// quietly drives the answer.
+function syncUsageBox() {
+  syncUsageValueAndTag();
+  renderUsageMeta();
+}
+
+function syncUsageValueAndTag() {
+  const box = document.getElementById("annual-usage");
+  const tag = document.getElementById("usage-tag");
+  const a = usageDicts().map((d) => d[USAGE_KEY])[0];
+  if (!a) {
+    if (!usageEdited) box.value = "";     // drop a mirrored default rather than let it follow you
+    box.placeholder = "estimate from bill";
+    tag.hidden = true;
+    return;
+  }
+  if (document.activeElement !== box) box.value = a.value;   // mirror; don't fight live typing
+  tag.hidden = false;
+  tag.textContent = a.tag;
+  tag.className = tagClass(a.tag);
+}
+
+// The box's explanation only changes when the STATE does, so it's rendered on state change alone —
+// rebuilding it on every keystroke would collapse the disclosure the user opened to read.
+function renderUsageMeta() {
+  const a = usageDicts().map((d) => d[USAGE_KEY])[0];
+  document.getElementById("usage-meta").innerHTML = a
+    ? `<p class="hint">${inCompare()
+        ? "Drives every option in the comparison that uses your usage."
+        : "The single most valuable number you can give us."}</p>` + whyHtml(a)
+    : `<p class="hint">If you know it, enter it — it replaces the bill→usage estimate with your
+       real number.</p>`;
+}
+
+// Cleared box (or a box that's only mirroring): every option goes back to its sourced default,
+// and community goes back to deriving usage from the bill.
+function resetUsageToDefaults() {
+  for (const k of optionKeysOnScreen()) {
+    const d = inCompare() ? compareAssumptions[k] : assumptions;
+    if (d[USAGE_KEY]) d[USAGE_KEY] = OPTIONS[k].defaults()[USAGE_KEY];
+  }
+}
+
+// Push the usage box into every option that carries usage as an assumption. Runs on every state
+// change too, so switching or adding an option never loses the number you typed.
+function applyUsageInput() {
+  const raw = document.getElementById("annual-usage").value;
+  if (!usageEdited || raw === "") {
+    usageEdited = false;
+    resetUsageToDefaults();
+    return;
+  }
+  const v = parseFloat(raw);
+  if (isNaN(v) || v < 0) return;
+  for (const d of usageDicts()) applyUsageAssumption(d, v);
+}
+
+// SHARED_KEYS rendered once, above the per-option ledgers, editing every compared option at once.
+function renderSharedAssumptions() {
+  const host = document.getElementById("shared-assumptions");
+  if (!inCompare()) { host.innerHTML = ""; return; }
+  let rows = "";
+  for (const key of SHARED_KEYS) {
+    const a = compareKeys.map((k) => compareAssumptions[k][key]).find(Boolean);
+    if (a) rows += assumptionRowHtml(key, a, { shared: true });
+  }
+  host.innerHTML = rows ? `<div class="assumptions">${rows}</div>` : "";
+  wireAssumptionInputs(host);
 }
 
 function readCtx() {
@@ -543,23 +912,29 @@ function hideNotice() { document.getElementById("notice").classList.remove("show
 // and (b) always for comparison questions, which the one-option service can't express.
 // Extracted inputs are applied and surfaced in the notice, never silently dropped
 // (docs/solutions: extracted inputs must be applied or surfaced).
-const ALL_OPTION_KEYS = ["community", "balcony", "rooftop", "battery", "battery+rooftop", "battery+balcony"];
+const ALL_OPTION_KEYS = ["community", "balcony", "rooftop", "battery", "plugin-battery", "battery+rooftop", "battery+balcony"];
 
 function parseQuestionLocally(q) {
   const s = (q || "").toLowerCase();
 
-  // Which options are named, in the order the question names them.
+  // Which options are named, in the order the question names them. "Plug-in battery" (or DIY
+  // battery / power station / TOU battery) is its OWN option — it must be claimed first and
+  // blanked out, or the balcony probe ("plug-in") and battery probe ("batter") would both
+  // misread it. Blanking with spaces keeps every later match index meaningful.
   const found = [];
-  const probe = (key, re) => { const i = s.search(re); if (i !== -1) found.push({ key, i }); };
-  probe("community", /\bcommunity\b/);
-  probe("balcony", /balcony|plug[\s-]?in/);
-  probe("rooftop", /\broof/);
-  probe("battery", /batter|powerwall|\bstorage\b/);
+  const pluginBatteryRe = /plug[\s-]?in\s+(?:der\s+|diy\s+)?batter\w*|diy\s+batter\w*|power\s*station\w*|tou\s+batter\w*/;
+  const probe = (key, re, str) => { const i = str.search(re); if (i !== -1) found.push({ key, i }); };
+  probe("plugin-battery", pluginBatteryRe, s);
+  const s2 = s.replace(new RegExp(pluginBatteryRe.source, "g"), (m) => " ".repeat(m.length));
+  probe("community", /\bcommunity\b/, s2);
+  probe("balcony", /balcony|plug[\s-]?in/, s2);
+  probe("rooftop", /\broof/, s2);
+  probe("battery", /batter|powerwall|\bstorage\b/, s2);
   found.sort((a, b) => a.i - b.i);
   const parts = found.map((f) => f.key);
 
   const compareWord = /compar|\bversus\b|\bvs\b|side[\s-]by[\s-]side/.test(s);
-  const compareAll = compareWord && /\ball\b|\bevery\b|\bsix\b/.test(s);
+  const compareAll = compareWord && /\ball\b|\bevery\b|\bseven\b/.test(s);
 
   // Usage: "550 kWh a month" -> annualized; unit-less small numbers read as monthly.
   let annualUsage = null;
@@ -616,21 +991,20 @@ function answerLocally(parsed, reason) {
   }
   if (parsed.annualUsage != null && !isNaN(parsed.annualUsage)) {
     document.getElementById("annual-usage").value = parsed.annualUsage;
+    usageEdited = true;
     understood.push(num(parsed.annualUsage) + " kWh/yr usage");
   }
+  // The shared inputs are set above; selecting the view re-applies them to whatever it builds.
   if (parsed.mode === "compare") {
     understood.unshift("comparing " + parsed.keys.map((k) => OPTIONS[k].label).join(" vs "));
     selectCompare(parsed.keys);
-    if (parsed.annualUsage != null) {
-      for (const k of parsed.keys) applyUsageAssumption(compareAssumptions[k], parsed.annualUsage);
-      recompute();
-    }
   } else if (parsed.mode === "single") {
     understood.unshift(OPTIONS[parsed.keys[0]].label);
     selectOption(parsed.keys[0]);
-    if (parsed.annualUsage != null && applyUsageAssumption(assumptions, parsed.annualUsage)) recompute();
   } else {
     understood.unshift("keeping the current option");    // "refine": numbers only
+    applyUsageInput();
+    syncSharedInputs();
     recompute();
   }
   showNotice(reason + " Understood: " + understood.join("; ") + ".");
@@ -707,19 +1081,20 @@ function renderAgentPayload(payload) {
       capital: { npv: res.npv, simplePaybackYears: res.simple_payback_years, opportunityRate: res.opportunity_rate, horizonYears: res.horizon_years },
     };
   }
+  // Mirror the agent's own assumptions into the shared inputs (never applyUsageInput() here —
+  // that would overwrite the agent's answer with this page's defaults).
+  syncSharedInputs();
   const note = payload.agent && payload.agent.note ? " " + payload.agent.note : "";
   render(r, payload.followup,
     "Answered by the calculator agent — " + OPTIONS[currentOption].describe(assumptions, readCtx()) + "." + note);
 }
 
-// Set the six-state machine to `key` without recomputing (the agent payload carries the data).
+// Set the seven-state machine to `key` without recomputing (the agent payload carries the data).
 function selectOptionSilently(key) {
   exitCompare();
   activeParts = new Set(key === "community" ? ["community"] : key.split("+"));
   currentOption = stateKey();
-  syncToggles();
-  const billCard = document.getElementById("bill-row");
-  if (billCard) billCard.style.display = OPTIONS[currentOption].needsBill ? "block" : "none";
+  syncPickers();
 }
 
 function fallbackToForm(message) {
@@ -762,11 +1137,16 @@ function recomputeCompare() {
   renderCompare(rows, ctx);
 }
 
+// Clicking a table row jumps to that option's ledger — it EXPANDS the section rather than
+// swapping the drawer's contents, so any section you already opened stays open beside it.
 function focusCompareOption(key) {
   currentOption = key;
   assumptions = compareAssumptions[key];
-  document.getElementById("refine").open = true;   // the focused ledger lives in the drawer
+  openSections.add(key);
+  document.getElementById("refine").open = true;   // the ledgers live in the drawer
   recomputeCompare();
+  const sec = document.querySelector(`details.opt-sec[data-sec="${key}"]`);
+  if (sec) sec.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function renderCompare(rows, ctx) {
@@ -793,7 +1173,7 @@ function renderCompare(rows, ctx) {
     }
   }
   html += `</tbody></table></div>`;
-  html += `<p class="context cmp-note">Savings are year 1. NPV converts each option’s future savings to today’s dollars at its opportunity rate (default 7%) and subtracts the upfront cost; community solar puts no capital at stake, so payback/NPV don’t apply. Every row recomputes live from the shared bill (${money(ctx.bill)}/mo) and usage — <strong>click a row</strong> to see its full steps and assumptions.</p>`;
+  html += `<p class="context cmp-note">Savings are year 1. NPV converts each option’s future savings to today’s dollars at the shared opportunity rate (default 7%) and subtracts the upfront cost; community solar puts no capital at stake, so payback/NPV don’t apply. Every row recomputes live from the shared bill (${money(ctx.bill)}/mo) and usage — <strong>click a row</strong> to jump to its own steps and assumptions.</p>`;
   html += `<button type="button" class="cmp-exit" id="cmp-exit">✕ Exit comparison — focus on ${OPTIONS[currentOption].label}</button>`;
   const el = document.getElementById("result");
   el.innerHTML = html;
@@ -803,9 +1183,36 @@ function renderCompare(rows, ctx) {
   document.getElementById("tip-body").innerHTML =
     "your electricity usage in kWh — it tightens every option in this comparison at once.";
 
-  const focused = rows.find((x) => x.key === currentOption);
-  if (focused && !focused.err) renderDetail(focused.r);
-  else document.getElementById("detail").innerHTML = focused ? `<p class='src warn'>${focused.err}</p>` : "";
+  renderCompareDetail(rows);
+}
+
+// Every compared option gets its OWN ledger section — the whole point of a comparison is that you
+// can refine both sides of it. Sections are collapsed by default (six full ledgers is a wall of
+// numbers) but hold their open/closed state across re-renders, so editing an assumption doesn't
+// slam shut the section you're working in.
+function renderCompareDetail(rows) {
+  const el = document.getElementById("detail");
+  let html = `<p class="card-label">Refine each option — edits here move only that option’s row</p>`;
+  for (const row of rows) {
+    const open = openSections.has(row.key) ? " open" : "";
+    const tail = row.err ? "error"
+      : row.key === "community" ? `${money0(row.r.annualSavings)}/yr · $0 upfront`
+      : `${money0(row.r.annualSavings)}/yr · ${money0(row.r.upfrontCost)} upfront`;
+    html += `<details class="opt-sec"${open} data-sec="${row.key}">`
+      + `<summary>${OPTIONS[row.key].label}<span class="sec-tail">${tail}</span></summary>`
+      + `<div class="sec-body">`
+      + (row.err ? `<p class="src warn">${row.err}</p>`
+                 : ledgerHtml(row.r, compareAssumptions[row.key], row.key))
+      + `</div></details>`;
+  }
+  el.innerHTML = html;
+  el.querySelectorAll("details.opt-sec").forEach((d) => {
+    d.addEventListener("toggle", () => {
+      const key = d.getAttribute("data-sec");
+      if (d.open) openSections.add(key); else openSections.delete(key);
+    });
+  });
+  wireAssumptionInputs(el);
 }
 
 function render(r, followupText, contextText) {
@@ -851,55 +1258,108 @@ function render(r, followupText, contextText) {
   renderDetail(r);
 }
 
-// Steps + assumptions -> #detail inside the refine drawer (shared by single and compare views).
+// Keys a ledger must NOT render, because a shared input above is already their one editor.
+function ledgerSkipKeys() { return inCompare() ? [...SHARED_KEYS, USAGE_KEY] : [USAGE_KEY]; }
+
+// Steps + assumptions -> #detail inside the refine drawer (single-option view).
 function renderDetail(r) {
   const el = document.getElementById("detail");
-  let html = "";
-  if (compareKeys) {
-    html += `<p class="card-label">Inspecting one row: ${OPTIONS[currentOption].label} — edits below change this row only</p>`;
-  }
-  html += `<h3>How we got there</h3><ol class="steps">`;
+  el.innerHTML = ledgerHtml(r, assumptions, currentOption);
+  wireAssumptionInputs(el);
+}
+
+// One option's ledger: its calculation chain, then its own assumptions. Takes the option and its
+// dict explicitly (never the globals) so the compare view can render one per row.
+function ledgerHtml(r, a, optionKey) {
+  let html = `<h3>How we got there</h3><ol class="steps">`;
   for (const s of r.steps) {
     const shown = s.unit.startsWith("$") ? `${money(s.value)} <span class="unit">${s.unit}</span>` : `${num(s.value)} <span class="unit">${s.unit}</span>`;
     html += `<li><div class="step-label">${s.label}</div><code>${s.formula}</code><div class="step-val">= ${shown}</div></li>`;
   }
-  if (currentOption !== "community") {
+  if (optionKey !== "community") {
     const cap = r.capital;
     html += `<li><div class="step-label">Capital verdict (vs. ${(cap.opportunityRate * 100).toFixed(0)}% opportunity cost)</div><code>NPV = −upfront + Σ savings_t ÷ (1+r)^t</code><div class="step-val">= ${money0(cap.npv)} <span class="unit">${cap.npv > 0 ? "solar wins" : "market wins"}, ${cap.horizonYears}-yr horizon</span></div></li>`;
   }
   html += `</ol>`;
 
-  html += `<h3>Assumptions <span class="hint">(edit any to refine — expand a row for what it means)</span></h3><div class="assumptions">`;
-  for (const key of Object.keys(assumptions)) {
-    const a = assumptions[key];
-    html += `<div class="assumption"><label>${a.label}</label>`;
-    html += `<div class="arow"><input type="number" step="any" min="0" data-key="${key}" value="${a.value}"> <span class="unit">${a.unit}</span> <span class="${tagClass(a.tag)}">${a.tag}</span></div>`;
-    if (!a.source && a.tag === TAGS.UNSOURCED) {
-      html += `<div class="src warn">no source yet — don't treat this number as established fact</div>`;
-    }
-    if (a.explain || a.source) {
-      html += `<details class="why"><summary>What this means</summary><div class="deep">`;
-      if (a.explain) html += `<p>${a.explain}</p>`;
-      if (a.source) {
-        const cite = a.source.url ? `<a href="${a.source.url}" target="_blank" rel="noopener">${a.source.title}</a>` : a.source.title;
-        html += `<p class="src">source: ${cite}${a.source.note ? ` — ${a.source.note}` : ""}</p>`;
-        if (a.source.what_is_it) html += `<p class="src">what the source is: ${a.source.what_is_it}</p>`;
-      } else if (a.tag === TAGS.UNSOURCED) {
-        html += `<p class="src warn">This number is a placeholder awaiting research — treat it as a question, not an answer.</p>`;
-      }
-      html += `</div></details>`;
-    }
-    html += `</div>`;
+  const skip = ledgerSkipKeys();
+  const lifted = Object.keys(a).filter((k) => skip.includes(k));
+  html += `<h3>Assumptions <span class="hint">(edit any to refine — expand a row for what it means)</span></h3>`;
+  if (lifted.length) {
+    // Lead with WHERE, then list: an assumption's label can itself contain an em dash, so a
+    // "<label> and <label> — these describe…" sentence turns into a run-on.
+    const where = inCompare()
+      ? "Edited once under <strong>Shared inputs</strong> above, where a change moves every option at once"
+      : "Edited in the box above";
+    html += `<p class="hint" style="margin:-4px 0 10px">${where}, because
+      ${lifted.length > 1 ? "they describe" : "it describes"} your situation rather than this
+      option: ${lifted.map((k) => a[k].label).join("; ")}.</p>`;
   }
-  html += `</div>`;
-  el.innerHTML = html;
+  html += `<div class="assumptions">`;
+  for (const key of Object.keys(a)) {
+    if (skip.includes(key)) continue;
+    html += assumptionRowHtml(key, a[key], { opt: optionKey });
+  }
+  return html + `</div>`;
+}
 
-  el.querySelectorAll("input[data-key]").forEach((inp) => {
+// Spinner increment for an assumption's number input. `step="any"` made the arrows move by 1,
+// which is meaningless on a 0.005 degradation rate and a rounding error on a $1,200 kit. A click
+// should be a nudge at the scale the number lives at: whole years, a percentage point on a
+// fraction, ten dollars on a dollar figure, otherwise ~1% of the value snapped to 0.01/0.1/1/10.
+// Unit alone can't decide it — "$/kWh" is both 0.27 (a retail rate) and 998 (installed battery
+// cost) — so magnitude breaks the tie.
+function stepFor(a) {
+  const u = (a.unit || "").toLowerCase();
+  const v = Math.abs(Number(a.value)) || 0;
+  if (u === "years") return 1;
+  if (u === "fraction") return v > 0 && v < 0.02 ? 0.001 : 0.01;   // 0.5%/yr degradation needs finer
+  if (u === "$" || u === "$/yr") return 10;                        // incl. defaults of 0, where magnitude says nothing
+  if (v >= 100) return 10;
+  if (v >= 10) return 1;
+  if (v >= 1) return 0.1;
+  return 0.01;
+}
+
+// One editable assumption row. `where` decides which dict an edit lands in: {opt} = that option
+// only; {shared:true} = every option on screen that carries the key.
+function assumptionRowHtml(key, a, where) {
+  const target = where.shared ? ` data-shared="1"` : ` data-opt="${where.opt}"`;
+  let html = `<div class="assumption"><label>${a.label}</label>`;
+  html += `<div class="arow"><input type="number" step="${stepFor(a)}" min="0" data-key="${key}"${target} value="${a.value}"> <span class="unit">${a.unit}</span> <span class="${tagClass(a.tag)}">${a.tag}</span></div>`;
+  if (!a.source && a.tag === TAGS.UNSOURCED) {
+    html += `<div class="src warn">no source yet — don't treat this number as established fact</div>`;
+  }
+  return html + whyHtml(a) + `</div>`;
+}
+
+// The "what this means / where it came from" disclosure. Every surface that shows an assumption
+// shows this too — a number without its provenance is exactly what this tool exists not to be.
+function whyHtml(a) {
+  if (!a.explain && !a.source) return "";
+  let html = `<details class="why"><summary>What this means</summary><div class="deep">`;
+  if (a.explain) html += `<p>${a.explain}</p>`;
+  if (a.source) {
+    const cite = a.source.url ? `<a href="${a.source.url}" target="_blank" rel="noopener">${a.source.title}</a>` : a.source.title;
+    html += `<p class="src">source: ${cite}${a.source.note ? ` — ${a.source.note}` : ""}</p>`;
+    if (a.source.what_is_it) html += `<p class="src">what the source is: ${a.source.what_is_it}</p>`;
+  } else if (a.tag === TAGS.UNSOURCED) {
+    html += `<p class="src warn">This number is a placeholder awaiting research — treat it as a question, not an answer.</p>`;
+  }
+  return html + `</div></details>`;
+}
+
+function wireAssumptionInputs(root) {
+  root.querySelectorAll("input[data-key]").forEach((inp) => {
     inp.addEventListener("change", (e) => {
       const key = e.target.getAttribute("data-key");
       const v = parseFloat(e.target.value);
       if (isNaN(v)) return;
-      assumptions[key] = { ...assumptions[key], value: v, tag: TAGS.USER_PROVIDED, source: null };
+      const opt = e.target.getAttribute("data-opt");
+      const dicts = e.target.hasAttribute("data-shared")
+        ? activeDicts().filter((d) => d[key])          // shared: move every row at once
+        : [opt && compareAssumptions ? compareAssumptions[opt] : assumptions];
+      for (const d of dicts) d[key] = { ...d[key], value: v, tag: TAGS.USER_PROVIDED, source: null };
       if (key === "default_monthly_bill") {
         // Agent payloads include this row; the computed bill lives in the #bill input — keep
         // them in lockstep so editing the row actually changes the result.
@@ -909,6 +1369,11 @@ function renderDetail(r) {
         pill.textContent = TAGS.USER_PROVIDED; pill.className = "tag tag-user";
       }
       recompute();
+      // Retag in place rather than re-rendering the block: a rebuild would collapse the "what
+      // this means" the user opened to decide what to type.
+      const pill = e.target.closest(".arow").querySelector(".tag");
+      pill.textContent = TAGS.USER_PROVIDED;
+      pill.className = tagClass(TAGS.USER_PROVIDED);
     });
   });
 }
@@ -947,10 +1412,24 @@ function initPage() {
     btn.addEventListener("click", () => { qbox.value = btn.textContent.trim(); askQuestion(qbox.value); });
   });
 
-  // refine flow
-  document.querySelectorAll("button.toggle").forEach((btn) => {
+  // refine flow: one option, or several side by side
+  document.querySelectorAll("button.mode").forEach((btn) => {
+    btn.addEventListener("click", () => setMode(btn.getAttribute("data-mode")));
+  });
+  document.querySelectorAll("button.toggle[data-part]").forEach((btn) => {
     btn.addEventListener("click", () => toggleOption(btn.getAttribute("data-part")));
   });
+
+  // The compare picker is built from the registry, so all seven states are reachable WITHOUT the
+  // question box — including the two combos, which the single-option toggles can only reach as
+  // a pairing. This is the click-only answer to "compare community solar to balcony solar".
+  const cmpHost = document.getElementById("compare-toggles");
+  cmpHost.innerHTML = ALL_OPTION_KEYS.map((k) =>
+    `<button class="toggle" type="button" data-cmp-key="${k}" aria-pressed="false">${OPTIONS[k].label}</button>`).join("");
+  cmpHost.querySelectorAll("button[data-cmp-key]").forEach((btn) => {
+    btn.addEventListener("click", () => toggleCompareKey(btn.getAttribute("data-cmp-key")));
+  });
+
   const billInput = document.getElementById("bill");
   billInput.addEventListener("input", () => {
     billEdited = billInput.value !== "" && parseFloat(billInput.value) !== DEFAULT_MONTHLY_BILL;
@@ -959,9 +1438,18 @@ function initPage() {
     pill.className = billEdited ? "tag tag-user" : "tag tag-sourced";
     recompute();
   });
-  document.getElementById("annual-usage").addEventListener("input", () => { recompute(); });
+  const usageInput = document.getElementById("annual-usage");
+  usageInput.addEventListener("input", () => {
+    usageEdited = usageInput.value !== "";
+    applyUsageInput();
+    recompute();
+    syncUsageValueAndTag();   // retag; the box itself is left alone while it has focus
+  });
+  // On blur, show what's actually in force — clearing the box falls back to a sourced default
+  // rather than to nothing, so the box must say so instead of sitting misleadingly empty.
+  usageInput.addEventListener("change", () => syncUsageValueAndTag());
   document.getElementById("reset").addEventListener("click", () => {
-    if (compareKeys) {
+    if (inCompare()) {
       compareAssumptions = {};
       for (const k of compareKeys) compareAssumptions[k] = OPTIONS[k].defaults();
       assumptions = compareAssumptions[currentOption];
@@ -969,9 +1457,10 @@ function initPage() {
       assumptions = OPTIONS[currentOption].defaults();
     }
     billInput.value = DEFAULT_MONTHLY_BILL; billEdited = false;
-    document.getElementById("annual-usage").value = "";
+    usageInput.value = ""; usageEdited = false;
     const pill = document.getElementById("bill-tag");
     pill.textContent = TAGS.DEFAULT_SOURCED; pill.className = "tag tag-sourced";
+    syncSharedInputs();
     recompute();
   });
 

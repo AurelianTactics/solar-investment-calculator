@@ -165,6 +165,9 @@ class TestHttpSurface:
 
     def test_missing_key_startup_error_names_the_fix(self):
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+        # Point .env loading at a nonexistent file so no key can slip in from the repo-root .env —
+        # the test's premise is "no key available anywhere".
+        env["SOLAR_AGENT_ENV_FILE"] = os.path.join(SERVICE_DIR, "does-not-exist.env")
         res = subprocess.run(
             [sys.executable, os.path.join(SERVICE_DIR, "app.py")],
             capture_output=True, text=True, timeout=60, env=env,

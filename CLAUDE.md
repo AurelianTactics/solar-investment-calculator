@@ -11,25 +11,28 @@ library only" rule is **retired** (2026-07-09) — do not resurrect it. Dependen
 **uv**: a venv created **outside the repo**, installed from the checked-in `requirements.txt`:
 
 ```sh
-uv venv %USERPROFILE%\.venvs\solar-calc          # one-time, outside the repo
-uv pip install -r requirements.txt --python %USERPROFILE%\.venvs\solar-calc\Scripts\python.exe
+uv venv %USERPROFILE%\claude_code_repos\my-uv-envs\solar-calc          # one-time, outside the repo
+uv pip install -r requirements.txt --python %USERPROFILE%\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe
 ```
 
 The core (`src/`) and verifier (`tools/`) stay stdlib-only by construction — only `service/` and
 the test runner need the venv.
 
-Six option states are modeled:
+Seven option states are modeled:
 
 - **community solar** — zero capital; `src/solar_calc.py`.
-- **balcony / plug-in, rooftop, battery** — capital options on the shared capital-allocation engine
-  (`src/capital.py`): each is a small pure module (`src/balcony.py`, `src/rooftop.py`,
-  `src/battery.py`) that produces upfront cost + annual savings, then asks the engine for
-  payback/NPV vs. investing the cash.
+- **balcony / plug-in, rooftop, battery, plugin-battery** — capital options on the shared
+  capital-allocation engine (`src/capital.py`): each is a small pure module (`src/balcony.py`,
+  `src/rooftop.py`, `src/battery.py`, `src/plugin_battery.py`) that produces upfront cost +
+  annual savings, then asks the engine for payback/NPV vs. investing the cash. Battery and
+  plugin-battery share the TOU three-case arbitrage engine (`src/tou.py`): battery via the
+  off-by-default `tou_enrolled` mode, plugin-battery as its whole point.
 - **battery+rooftop, battery+balcony** — stream-wise additive combos (`src/combo.py` mechanism,
   `src/battery_rooftop.py` / `src/battery_balcony.py` thin configs): each component keeps its own
   escalation/degradation/horizon stream; `capital.combine()` sums per-year cashflows and derives
   NPV/payback from the summed stream. Battery keys are `battery_`-prefixed in combo assumption
-  dicts so collisions (`federal_itc_pct`, `horizon_years`) stay per-component.
+  dicts so collisions (`federal_itc_pct`, `horizon_years`) stay per-component. Plugin-battery
+  stands alone (no pairings).
 
 `src/assumptions.py` is the shared assumption data model + per-option defaults. Every assumption
 carries `explain` (newcomer-grade plain English) and sourced defaults carry `source.what_is_it`
@@ -38,6 +41,10 @@ web. `src/cli.py` is the human + agent surface. `web/` is a question-first UI (q
 agent service, with automatic client-side form fallback) mirroring the Python formulas with an
 on-load self-check.
 
+Any option, and any **two or more** options side by side, are reachable three ways — by asking, by
+clicking (the refine drawer's mode switch → option picker), or headlessly (`--compare`,
+`selectCompare`). No capability lives only behind the question box.
+
 **The agent service** (`service/`): `POST /ask {question}` routes a natural-language question via
 one `claude-opus-4-8` structured-output call, computes through direct `src/` imports, and returns
 the CLI `--json` payload shape. Spend is capped server-side via a gitignored ledger
@@ -45,7 +52,7 @@ the CLI `--json` payload shape. Spend is capped server-side via a gitignored led
 the web page works fully without the service (that fallback is verifier-enforced).
 
 ```sh
-%USERPROFILE%\.venvs\solar-calc\Scripts\python.exe service\app.py   # run the service (port 8765)
+%USERPROFILE%\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe service\app.py   # run the service (port 8765)
 ```
 
 ## Active metric — run before reporting any calculation change done
@@ -59,18 +66,26 @@ pytest tests service/tests                   # + service tests (needs the venv; 
 python src/cli.py --bill 150                 # community (default); --json for agents
 python src/cli.py --option battery+rooftop   # combos work everywhere options do
 python src/cli.py --option rooftop --set capacity_kw=8   # --set overrides any assumption
+python src/cli.py --compare community,balcony            # 2+ options side by side (no LLM)
 ```
+
+**Comparisons are tabulated, never recomputed.** `--compare` (and the web's `selectCompare`) run
+each option's own code and lay the answers side by side: every row must equal what
+`--option <key>` says alone, and `tests/test_cli_compare.py` holds that parity. Overrides split by
+scope on both surfaces — `--set key=value` is *shared* (it moves every compared option carrying
+the key, mirroring the web's "Shared inputs" block), `--set option:key=value` moves one row.
+`opportunity_rate` is the one that matters: NPVs at different discount rates aren't comparable.
 
 **pytest** is the test runner (existing `unittest`-style tests are collected as-is; new tests may
 be written pytest-style).
 
 The Python core is the **source of truth**. `web/app.js` is a mirror with a per-option self-check
-banner (all six states, combos included); keep it in sync when a formula changes.
+banner (all seven states, combos included); keep it in sync when a formula changes.
 
 **Web rendering metric — run after any `web/` change.** "The website works" must be *observed*, not
 claimed. Verification is **two-layered**:
 
-1. **Deterministic loop** — `tools/verify_web.py run` (alias `/verify-web`) drives all six option
+1. **Deterministic loop** — `tools/verify_web.py run` (alias `/verify-web`) drives all seven option
    states in a headless chromium-family browser (Chrome/Chromium/Edge, discovered on any OS),
    asserts each renders, the parity self-check did not fire, and the agent-fallback notice appears
    when asking with the service unreachable; writes screenshots + a hashed evidence record to

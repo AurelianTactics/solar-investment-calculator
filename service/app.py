@@ -9,7 +9,7 @@ notice. Transport-level failures (service down, timeout) need no server cooperat
 frontend's fetch timeout handles them.
 
 Run locally (uv venv outside the repo — see service/README.md):
-    %USERPROFILE%\\.venvs\\solar-calc\\Scripts\\python.exe service/app.py
+    $env:USERPROFILE\\claude_code_repos\\my-uv-envs\\solar-calc\\Scripts\\python.exe service/app.py
 """
 
 from __future__ import annotations
@@ -18,6 +18,18 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Load the repo-root .env (e.g. ANTHROPIC_API_KEY) before anything reads os.environ, so the
+# service picks up the key from the file without it being set in the shell. Real environment
+# variables win over .env values (override=False). Point SOLAR_AGENT_ENV_FILE elsewhere to use a
+# different file; a missing file is a silent no-op.
+from dotenv import load_dotenv  # noqa: E402
+
+_ENV_FILE = os.environ.get(
+    "SOLAR_AGENT_ENV_FILE",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
+)
+load_dotenv(_ENV_FILE, override=False)
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402

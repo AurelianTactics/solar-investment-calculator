@@ -1,8 +1,9 @@
 """Formula-correctness tests for the combined options (battery+rooftop, battery+balcony).
 
 The combos are stream-wise additive: each component keeps its own escalation/degradation/horizon
-stream; per-year cashflows are summed over the longer horizon, and NPV/payback/verdict derive from
-the summed stream. Hand-verified worked example (escalation=0, degradation=0):
+stream (battery: 13-yr service life, 3%/yr fade; PV: 25 yr); per-year cashflows are summed over
+the longer horizon, and NPV/payback/verdict derive from the summed stream. Hand-verified worked
+example (all escalation/degradation zeroed):
 
   rooftop defaults: year-1 savings 6600 kWh x $0.27 = $1,782;  upfront 5.5 kW x $2.95/W = $16,225
   battery defaults: year-1 value  $0 + $200 resilience = $200; upfront 13.5 kWh x $998 = $13,473
@@ -42,6 +43,7 @@ def flat_assumptions(builder):
     a = builder()
     a["electricity_escalation"] = a["electricity_escalation"].with_user_value(0.0)
     a["panel_degradation"] = a["panel_degradation"].with_user_value(0.0)
+    a["battery_annual_degradation"] = a["battery_annual_degradation"].with_user_value(0.0)
     return a
 
 
@@ -69,7 +71,7 @@ class TestBatteryRooftopWorkedExample:
         bt = battery.compute(
             usable_kwh=13.5, installed_cost_per_kwh=998.0, federal_itc_pct=0.0,
             annual_bill_savings=0.0, resilience_value_per_year=200.0,
-            horizon_years=10, opportunity_rate=0.07,
+            horizon_years=13, opportunity_rate=0.07, annual_degradation=0.0,
         )
         assert self.r.capital.npv == pytest.approx(pv.capital.npv + bt.capital.npv)
 
@@ -94,22 +96,24 @@ class TestBatteryRooftopWorkedExample:
 # --------------------------------------------------------------------- horizon honesty
 
 class TestHorizonHonesty:
-    def test_battery_contributes_nothing_after_year_10(self):
-        # With the shipped defaults (escalation and degradation live), year-11 combined
-        # cashflow must equal the PV-only cashflow: the battery stream ended at year 10.
+    def test_battery_contributes_nothing_after_year_13(self):
+        # With the shipped defaults (escalation, PV degradation, and 3%/yr battery fade all
+        # live), year-14 combined cashflow must equal the PV-only cashflow: the battery stream
+        # ended at its 13-yr service life.
         a = battery_rooftop_assumptions()
         combo_r = battery_rooftop.compute_from_assumptions(a)
         pv = rooftop.compute_from_assumptions(a)
         assert combo_r.capital.horizon_years == 25
-        assert combo_r.capital.yearly[10].savings == pytest.approx(pv.capital.yearly[10].savings)
-        # ...while year 10 still includes the battery's $200.
-        assert combo_r.capital.yearly[9].savings == pytest.approx(pv.capital.yearly[9].savings + 200.0)
+        assert combo_r.capital.yearly[13].savings == pytest.approx(pv.capital.yearly[13].savings)
+        # ...while year 13 still includes the battery's faded value: 200 x 0.97^12.
+        assert combo_r.capital.yearly[12].savings == pytest.approx(
+            pv.capital.yearly[12].savings + 200.0 * 0.97 ** 12)
 
     def test_battery_balcony_same_rule(self):
         a = battery_balcony_assumptions()
         combo_r = battery_balcony.compute_from_assumptions(a)
         pv = balcony.compute_from_assumptions(a)
-        assert combo_r.capital.yearly[10].savings == pytest.approx(pv.capital.yearly[10].savings)
+        assert combo_r.capital.yearly[13].savings == pytest.approx(pv.capital.yearly[13].savings)
 
 
 # --------------------------------------------------------------------- battery+balcony worked example
@@ -138,9 +142,9 @@ class TestInteractionAssumption:
         )
         r = battery_rooftop.compute_from_assumptions(a)
         assert r.annual_savings == pytest.approx(1982.0 + 150.0)
-        # the uplift rides the battery stream: present in year 10, gone by year 11
-        assert r.capital.yearly[9].savings == pytest.approx(1782.0 + 200.0 + 150.0)
-        assert r.capital.yearly[10].savings == pytest.approx(1782.0)
+        # the uplift rides the battery stream: present in year 13, gone by year 14
+        assert r.capital.yearly[12].savings == pytest.approx(1782.0 + 200.0 + 150.0)
+        assert r.capital.yearly[13].savings == pytest.approx(1782.0)
 
     def test_tagged_unsourced_with_no_url(self):
         for builder in (battery_rooftop_assumptions, battery_balcony_assumptions):
@@ -156,7 +160,7 @@ class TestBuilders:
     def test_two_horizons_coexist(self):
         a = battery_rooftop_assumptions()
         assert a["horizon_years"].value == 25.0            # the PV stream's horizon
-        assert a["battery_horizon_years"].value == 10.0    # the battery stream's horizon
+        assert a["battery_horizon_years"].value == 13.0    # the battery stream's service life
 
     def test_itc_collision_resolved_per_component(self):
         a = battery_rooftop_assumptions()

@@ -116,7 +116,8 @@ class TestAssertRender(unittest.TestCase):
             '<div id="__probe" data-err=""></div>'
             '<table class="cmp-table"><tr><td>Balcony / Plug-In Solar</td>'
             '<td>Community Solar</td></tr></table>'
-            '<div class="step-label">x</div>'
+            '<details class="opt-sec" data-sec="balcony"><div class="step-label">x</div></details>'
+            '<details class="opt-sec" data-sec="community"><div class="step-label">x</div></details>'
         )
 
     def test_clean_compare_has_no_problems(self):
@@ -126,6 +127,12 @@ class TestAssertRender(unittest.TestCase):
         dom = self._clean_compare().replace('class="cmp-table"', 'class="x"')
         problems = vw.assert_render("compare", dom)
         self.assertTrue(any("cmp-table" in p for p in problems))
+
+    def test_compare_missing_one_rows_refine_section_detected(self):
+        # The regression this guards: a comparison you can only refine half of.
+        dom = self._clean_compare().replace('data-sec="community"', 'data-sec="other"')
+        problems = vw.assert_render("compare", dom)
+        self.assertTrue(any("no refine section for the community row" in p for p in problems))
 
     def test_capital_missing_upfront_detected(self):
         dom = (

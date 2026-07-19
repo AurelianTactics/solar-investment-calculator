@@ -1,7 +1,7 @@
 """Combined options — one mechanism behind battery+rooftop and battery+balcony.
 
 A combo is stream-wise ADDITIVE: each component is computed by its own existing module with its
-own escalation/degradation/horizon (battery: 10 yr, flat; PV: 25 yr, escalating/degrading), then
+own escalation/degradation/horizon (battery: 13 yr, 3%/yr fade; PV: 25 yr, escalating/degrading), then
 ``capital.combine`` sums the per-year cashflows over the longer horizon and derives the combined
 NPV/payback/verdict from the summed stream. Nothing about a component's own economics changes by
 being in a combo.
@@ -42,6 +42,8 @@ INTERACTION_KEY = "battery_pv_interaction_value_per_year"
 _BATTERY_KEYS = (
     "usable_kwh", "installed_cost_per_kwh", "federal_itc_pct",
     "annual_bill_savings", "resilience_value_per_year", "horizon_years",
+    "annual_degradation", "tou_enrolled", "annual_usage_kwh", "on_peak_share",
+    "residual_coverage", "enrollment_discount_per_kwh", "residual_penalty_per_kwh",
 )
 
 # Per-PV-option display metadata: which assumption keys each summary step traces to.

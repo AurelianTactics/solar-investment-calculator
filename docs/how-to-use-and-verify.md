@@ -13,9 +13,16 @@ python src/cli.py
 python src/cli.py --bill 150
 python src/cli.py --bill 150 --json                 # machine-readable
 
-# Any of the six option states; --set overrides any assumption (re-tags it "user-provided")
+# Any of the seven option states; --set overrides any assumption (re-tags it "user-provided")
 python src/cli.py --option rooftop --set capacity_kw=8
 python src/cli.py --option battery+rooftop          # combos: battery+rooftop, battery+balcony
+python src/cli.py --option plugin-battery           # plug-in/DIY battery on the TOU rate (3 cases)
+
+# Two or more options side by side, over shared inputs
+python src/cli.py --compare community,balcony
+python src/cli.py --compare community,rooftop,battery+rooftop --bill 220 --annual-usage 9000
+python src/cli.py --compare rooftop,battery+rooftop --set opportunity_rate=0.03 \
+                  --set rooftop:capacity_kw=8       # shared --set vs. option:key=value
 
 # Website — same formulas, in a browser
 python -m http.server --directory web 8000          # then open http://localhost:8000
@@ -26,10 +33,23 @@ running, it routes your question and answers with the same numbers the CLI produ
 or its budget is spent — the page falls back to the classic form flow with a notice, fully
 client-side. The sticky result card pins the headline number (with a context line: your scenario,
 or a caveat when the bill is still the sourced Maine average) while you scroll. "Refine this
-estimate" opens the option toggles (community stands alone; battery pairs with rooftop or the
-balcony kit), the input boxes, the calculation steps, and the assumptions ledger. Expand any
-assumption row for a newcomer-grade explanation of what the number means and what the source
-actually is.
+estimate" opens the drawer, which works in one of two modes:
+
+- **One option** — the option toggles (community and the plug-in battery stand alone; battery
+  pairs with rooftop or the balcony kit), then that option's calculation steps and assumptions
+  ledger.
+- **Compare side by side** — pick any two or more of the seven states and each gets a row in the
+  table. No question box required: comparing community solar to balcony solar is two clicks.
+
+The drawer splits every control by what an edit is allowed to touch. **Shared inputs** (your bill,
+your usage, the opportunity rate) describe *your situation*, so an edit there moves every option on
+screen at once — that's what makes the rows comparable, and it's why NPVs can't be computed at
+different discount rates. Below them, each compared option gets **its own collapsible ledger**,
+where an edit moves only that option's row (a ✎ marks rows you've customized). A number is editable
+in exactly one place: shared numbers are lifted out of the per-option ledgers, never duplicated.
+
+Expand any assumption row — in either place — for a newcomer-grade explanation of what the number
+means and what the source actually is.
 
 Running the agent service (optional; needs an `ANTHROPIC_API_KEY` and the uv venv):
 see [`../service/README.md`](../service/README.md).
@@ -45,8 +65,8 @@ those credits from the provider at a discount — the discount is the savings
 Capital options compute year-1 savings and upfront cost, then the capital engine asks the
 `STRATEGY.md` question: **are you better off buying solar, or investing that cash at the
 opportunity rate?** (NPV > 0 → solar wins.) Combos are stream-wise additive: the battery keeps its
-10-year flat stream, the PV keeps its 25-year escalating/degrading stream, and the verdict comes
-from the summed per-year cashflows.
+13-year stream (3%/yr capacity fade), the PV keeps its 25-year escalating/degrading stream, and the
+verdict comes from the summed per-year cashflows.
 
 Each assumption is tagged `default (sourced)`, `user-provided`, or `unsourced — pending research`,
 carries a plain-English explanation of what it means and what moves it, and sourced defaults cite
@@ -88,7 +108,7 @@ The product **is** the audit trail. Four independent checks back every result:
    JS; if anything diverges, a red banner tells you not to trust the page.
 
 3. **Two-layer browser verification.** "The website works" is observed, never claimed:
-   - *Deterministic loop* — `python tools/verify_web.py run` drives all six option states in a
+   - *Deterministic loop* — `python tools/verify_web.py run` drives all seven option states in a
      headless browser (Chrome/Chromium/Edge, any OS), asserts each renders with parity intact and
      that asking with the service unreachable degrades to the form flow, and writes screenshots +
      a hashed evidence record to `.verify/`.
@@ -150,3 +170,19 @@ Anything above, an agent can do headlessly: import the option modules directly, 
 (value, tag, source, `explain`, `what_is_it`, `is_unsourced`), or POST the same question a human
 would type to the local service's `/ask`. The formula suite plus `verify_web.py check` are the
 automated verification arms.
+
+Comparisons are agent-native the same way — `--compare a,b --json` needs no LLM at all:
+
+```json
+{ "comparison": ["community", "balcony"],
+  "shared_inputs": { "monthly_bill": 168.41, "opportunity_rate": { "value": 0.07, "tag": "..." } },
+  "options": { "community": { ...the --option community --json payload... },
+               "balcony":   { ...the --option balcony --json payload... } } }
+```
+
+Each entry under `options` is byte-for-byte the payload that option emits on its own — a
+comparison is the same calculation tabulated, never a second implementation of it, and
+`tests/test_cli_compare.py` holds that parity to the metric. The web page's `selectCompare(keys)`
+is the browser-side equivalent. The one surface a comparison does *not* have is the agent service:
+`/ask` maps a question to a single option, so the page answers compare-intent questions with its
+own verified mirror instead (see `web/app.js`).
