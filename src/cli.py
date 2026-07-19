@@ -1,18 +1,31 @@
-"""Community-solar POC — command-line surface.
+"""Solar investment calculator — command-line surface (all options).
 
-Agent-native parity (R10): everything a human can do here, an agent can do by importing
-``solar_calc`` directly or by calling this CLI with ``--json``. Shows the result, the labeled
-calculation steps (R9), and every assumption with its tag and source (R6-R8).
+Agent-native parity (R10): everything a human can do here, an agent can do by importing the option
+modules directly or by calling this CLI with ``--json``. Shows the result, the labeled calculation
+steps (R9), and every assumption with its tag and source (R6-R8).
 
+    # Community solar (default option) — bill-first
     python3 src/cli.py --bill 150
-    python3 src/cli.py --bill 150 --price-per-kwh 0.306 --discount 0.15 --offset-fraction 0.82
-    python3 src/cli.py --bill 150 --json
+    python3 src/cli.py --bill 150 --discount 0.15 --offset-fraction 0.82 --price-per-kwh 0.306
+
+    # Capital options — defaults, or override any assumption by key with --set (repeatable)
+    python3 src/cli.py --option balcony
+    python3 src/cli.py --option rooftop --set capacity_kw=8 --set installed_cost_per_w=3.5
+    python3 src/cli.py --option battery --set resilience_value_per_year=400
+
+    # Side by side — any two or more options, no LLM involved
+    python3 src/cli.py --compare community,balcony
+    python3 src/cli.py --compare community,rooftop,battery+rooftop --bill 220 --json
+
+    # Machine-readable
+    python3 src/cli.py --option balcony --json
 """
 
 from __future__ import annotations
 
 import argparse
 import dataclasses
+import importlib
 import json
 import os
 import sys
@@ -20,11 +33,129 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
 from assumptions import Assumption, default_assumptions  # noqa: E402
-from solar_calc import compute  # noqa: E402
+from solar_calc import compute as compute_community  # noqa: E402
+
+# Capital options. Modules + assumption builders are imported lazily (see capital_spec) so the
+# community path never depends on the others.
+CAPITAL_OPTIONS = {
+    "balcony": {
+        "label": "Balcony / Plug-In Solar (Maine)",
+        "assumption_builders": ("balcony_assumptions", "capital_assumptions"),
+        "shown": [
+            "capacity_kw", "specific_yield_kwh_per_kw", "self_consumption_fraction",
+            "volumetric_rate_per_kwh", "kit_cost", "electrician_cost",
+            "opportunity_rate", "electricity_escalation", "panel_degradation", "horizon_years",
+        ],
+    },
+    "rooftop": {
+        "label": "Rooftop Solar (Maine)",
+        "assumption_builders": ("rooftop_assumptions", "capital_assumptions"),
+        "shown": [
+            "capacity_kw", "specific_yield_kwh_per_kw", "installed_cost_per_w", "federal_itc_pct",
+            "credit_value_per_kwh", "annual_usage_kwh", "offset_cap_fraction",
+            "opportunity_rate", "electricity_escalation", "panel_degradation", "horizon_years",
+        ],
+    },
+    "battery": {
+        "label": "Home Battery Storage (Maine)",
+        # capital first so battery_assumptions() can override horizon_years (13 vs the 25-yr PV default)
+        "assumption_builders": ("capital_assumptions", "battery_assumptions"),
+        "shown": [
+            "usable_kwh", "installed_cost_per_kwh", "federal_itc_pct", "annual_bill_savings",
+            "tou_enrolled", "annual_usage_kwh", "on_peak_share", "residual_coverage",
+            "enrollment_discount_per_kwh", "residual_penalty_per_kwh",
+            "resilience_value_per_year", "annual_degradation", "warranty_years",
+            "opportunity_rate", "horizon_years",
+        ],
+    },
+    "plugin-battery": {
+        "label": "Plug-In / DIY Battery (Maine)",
+        "module": "plugin_battery",
+        # capital first so plugin_battery_assumptions() can override horizon_years (10-yr life)
+        "assumption_builders": ("capital_assumptions", "plugin_battery_assumptions"),
+        "shown": [
+            "annual_usage_kwh", "on_peak_share", "residual_coverage", "cycles_per_year",
+            "enrollment_discount_per_kwh", "residual_penalty_per_kwh",
+            "value_per_usable_kwh_yr", "installed_cost_per_kwh", "federal_itc_pct",
+            "resilience_value_per_year", "opportunity_rate", "horizon_years",
+        ],
+    },
+    # Combined options: one additive mechanism (combo.py), two thin modules. Battery keys are
+    # battery_-prefixed so collisions (federal_itc_pct, horizon_years) stay per-component.
+    "battery+rooftop": {
+        "label": "Battery + Rooftop Solar (Maine)",
+        "module": "battery_rooftop",
+        "assumption_builders": ("battery_rooftop_assumptions",),
+        "shown": [
+            "capacity_kw", "specific_yield_kwh_per_kw", "installed_cost_per_w", "federal_itc_pct",
+            "credit_value_per_kwh", "annual_usage_kwh", "offset_cap_fraction",
+            "battery_usable_kwh", "battery_installed_cost_per_kwh", "battery_federal_itc_pct",
+            "battery_annual_bill_savings", "battery_tou_enrolled", "battery_annual_usage_kwh",
+            "battery_on_peak_share", "battery_residual_coverage",
+            "battery_enrollment_discount_per_kwh", "battery_residual_penalty_per_kwh",
+            "battery_resilience_value_per_year", "battery_annual_degradation",
+            "battery_warranty_years", "battery_horizon_years",
+            "battery_pv_interaction_value_per_year",
+            "opportunity_rate", "electricity_escalation", "panel_degradation", "horizon_years",
+        ],
+    },
+    "battery+balcony": {
+        "label": "Battery + Balcony / Plug-In Solar (Maine)",
+        "module": "battery_balcony",
+        "assumption_builders": ("battery_balcony_assumptions",),
+        "shown": [
+            "capacity_kw", "specific_yield_kwh_per_kw", "self_consumption_fraction",
+            "volumetric_rate_per_kwh", "kit_cost", "electrician_cost",
+            "battery_usable_kwh", "battery_installed_cost_per_kwh", "battery_federal_itc_pct",
+            "battery_annual_bill_savings", "battery_tou_enrolled", "battery_annual_usage_kwh",
+            "battery_on_peak_share", "battery_residual_coverage",
+            "battery_enrollment_discount_per_kwh", "battery_residual_penalty_per_kwh",
+            "battery_resilience_value_per_year", "battery_annual_degradation",
+            "battery_warranty_years", "battery_horizon_years",
+            "battery_pv_interaction_value_per_year",
+            "opportunity_rate", "electricity_escalation", "panel_degradation", "horizon_years",
+        ],
+    },
+}
 
 
-def build_assumptions(args) -> dict[str, Assumption]:
-    """Start from shipped defaults; override with any user-provided values (re-tagging them)."""
+def capital_spec(option_key):
+    """Lazily resolve (module, merged-assumptions) for a capital option."""
+    import assumptions as asm_mod
+
+    module = importlib.import_module(CAPITAL_OPTIONS[option_key].get("module", option_key))
+    merged: dict = {}
+    for builder in CAPITAL_OPTIONS[option_key]["assumption_builders"]:
+        merged.update(getattr(asm_mod, builder)())
+    return module, merged
+
+
+def money(x: float) -> str:
+    return f"${x:,.2f}"
+
+
+def apply_overrides(a: dict, sets: list[str]) -> dict:
+    """Apply --set key=value overrides, re-tagging each touched assumption user-provided."""
+    for item in sets or []:
+        if "=" not in item:
+            raise SystemExit(f"--set expects key=value, got: {item!r}")
+        key, raw = item.split("=", 1)
+        key = key.strip()
+        if key not in a:
+            raise SystemExit(f"--set unknown assumption key: {key!r}. Known: {', '.join(sorted(a))}")
+        try:
+            val = float(raw)
+        except ValueError:
+            raise SystemExit(f"--set value must be numeric, got: {raw!r}")
+        a[key] = a[key].with_user_value(val)
+    return a
+
+
+# --- community solar (bill-first) ------------------------------------------
+
+def build_community_assumptions(args, apply_sets: bool = True) -> dict:
+    """Community defaults + the convenience flags. `apply_sets=False` leaves --set to the caller,
+    which --compare needs: there, a --set may be scoped to another option entirely."""
     a = default_assumptions()
     overrides = {
         "price_per_kwh": args.price_per_kwh,
@@ -35,61 +166,34 @@ def build_assumptions(args) -> dict[str, Assumption]:
     for key, val in overrides.items():
         if val is not None:
             a[key] = a[key].with_user_value(val)
-    return a
+    return apply_overrides(a, args.set) if apply_sets else a
 
 
-def money(x: float) -> str:
-    return f"${x:,.2f}"
-
-
-def render_text(bill: float, a: dict, result, annual_usage_override) -> str:
-    out: list[str] = []
-    out.append("=" * 64)
-    out.append("  Community-Solar Savings Estimate (Maine POC)")
-    out.append("=" * 64)
+def render_community_text(bill, a, result, annual_usage_override) -> str:
+    out = ["=" * 64, "  Community-Solar Savings Estimate (Maine)", "=" * 64]
     out.append(f"  Your monthly bill (do-nothing baseline): {money(bill)}")
-    out.append("")
-    out.append("  ESTIMATE")
-    out.append(f"    Annual savings : {money(result.annual_savings)}")
-    out.append(f"    Monthly savings: {money(result.monthly_savings)}")
-    out.append(f"    Percent off    : {result.pct_off * 100:.1f}%")
-    out.append(f"    Upfront capital: {money(result.capital)}  (community solar requires none)")
-    out.append("")
+    out += ["", "  ESTIMATE",
+            f"    Annual savings : {money(result.annual_savings)}",
+            f"    Monthly savings: {money(result.monthly_savings)}",
+            f"    Percent off    : {result.pct_off * 100:.1f}%",
+            f"    Upfront capital: {money(result.capital)}  (community solar requires none)", ""]
     out.append("  STEPS (bill -> usage -> credits -> savings)")
     for s in result.steps:
-        unit = s.unit
-        val = f"{s.value:,.2f}" if unit.startswith("$") else f"{s.value:,.0f}"
-        out.append(f"    {s.n}. {s.label}")
-        out.append(f"       {s.formula}")
-        out.append(f"       = {val} {unit}")
+        val = f"{s.value:,.2f}" if s.unit.startswith("$") else f"{s.value:,.0f}"
+        out += [f"    {s.n}. {s.label}", f"       {s.formula}", f"       = {val} {s.unit}"]
     out.append("")
-    out.append("  ASSUMPTIONS (edit any to refine the estimate)")
-    shown = ["price_per_kwh", "bill_offset_fraction", "subscription_discount_pct", "allocation_pct"]
-    for key in shown:
-        asm = a[key]
-        out.append(f"    - {asm.label}")
-        out.append(f"        value: {asm.value}  ({asm.unit})   [{asm.tag}]")
-        if asm.source:
-            src = asm.source
-            cite = src.title + (f" <{src.url}>" if src.url else "")
-            out.append(f"        source: {cite}")
-            if src.note:
-                out.append(f"        note: {src.note}")
-        elif asm.is_unsourced:
-            out.append("        source: (none yet — do not treat this number as established fact)")
+    out += render_assumptions_block(
+        a, ["default_monthly_bill", "price_per_kwh", "bill_offset_fraction",
+            "subscription_discount_pct", "allocation_pct"])
     if annual_usage_override is not None:
         out.append(f"    - Annual usage (user-provided): {annual_usage_override:,.0f} kWh")
     out.append("=" * 64)
     return "\n".join(out)
 
 
-def render_json(bill: float, a: dict, result) -> str:
-    def asm_dict(asm: Assumption) -> dict:
-        d = dataclasses.asdict(asm)
-        d["is_unsourced"] = asm.is_unsourced
-        return d
-
-    payload = {
+def community_payload(bill, a, result) -> dict:
+    return {
+        "option": "community",
         "inputs": {"monthly_bill": bill},
         "result": {
             "annual_savings": result.annual_savings,
@@ -103,31 +207,314 @@ def render_json(bill: float, a: dict, result) -> str:
         "steps": [dataclasses.asdict(s) for s in result.steps],
         "assumptions": {k: asm_dict(v) for k, v in a.items()},
     }
-    return json.dumps(payload, indent=2)
+
+
+def render_community_json(bill, a, result) -> str:
+    return json.dumps(community_payload(bill, a, result), indent=2)
+
+
+# --- capital options (balcony / rooftop / battery) -------------------------
+
+def render_capital_text(option_key, a, result, shown) -> str:
+    label = CAPITAL_OPTIONS[option_key]["label"]
+    cap = result.capital
+    out = ["=" * 64, f"  {label}", "=" * 64, "", "  ESTIMATE",
+           f"    Annual savings (year 1): {money(result.annual_savings)}",
+           f"    Upfront capital        : {money(result.upfront_cost)}"]
+    payback = cap.simple_payback_years
+    out.append(f"    Simple payback         : {payback:.1f} yr" if payback is not None
+               else "    Simple payback         : never (no annual savings)")
+    out += [f"    Lifetime savings ({cap.horizon_years} yr): {money(cap.lifetime_savings_nominal)} nominal",
+            f"    NPV vs. investing cash : {money(cap.npv)}   ({'solar wins' if cap.npv > 0 else 'the market wins'} at {cap.opportunity_rate * 100:.0f}%)",
+            ""]
+    out.append("  STEPS")
+    for s in result.steps:
+        val = f"{s.value:,.2f}" if s.unit.startswith("$") else f"{s.value:,.0f}"
+        out += [f"    {s.n}. {s.label}", f"       {s.formula}", f"       = {val} {s.unit}"]
+    verdict_n = len(result.steps) + 1
+    out += ["", f"    {verdict_n}. Capital verdict (vs. {cap.opportunity_rate * 100:.0f}% opportunity cost)",
+            f"       NPV = -upfront + sum_t savings_t / (1+r)^t  =  {money(cap.npv)}", ""]
+    out += render_assumptions_block(a, shown)
+    out.append("=" * 64)
+    return "\n".join(out)
+
+
+def capital_payload(option_key, a, result, shown) -> dict:
+    cap = result.capital
+    return {
+        "option": option_key,
+        "result": {
+            "annual_savings_year1": result.annual_savings,
+            "upfront_cost": result.upfront_cost,
+            "simple_payback_years": cap.simple_payback_years,
+            "lifetime_savings_nominal": cap.lifetime_savings_nominal,
+            "lifetime_roi": cap.lifetime_roi,
+            "npv": cap.npv,
+            "net_advantage_fv": cap.net_advantage_fv,
+            "horizon_years": cap.horizon_years,
+            "opportunity_rate": cap.opportunity_rate,
+        },
+        "steps": [dataclasses.asdict(s) for s in result.steps],
+        "yearly": [dataclasses.asdict(y) for y in cap.yearly],
+        "assumptions": {k: asm_dict(a[k]) for k in shown},
+    }
+
+
+def render_capital_json(option_key, a, result, shown) -> str:
+    return json.dumps(capital_payload(option_key, a, result, shown), indent=2)
+
+
+# --- side-by-side comparison (--compare) -----------------------------------
+#
+# Mirrors the web comparison view, and splits overrides the same way it does:
+#   --set key=value            -> SHARED: applied to every compared option carrying that key
+#                                 (your bill, your usage, your opportunity rate)
+#   --set option:key=value     -> that option's ledger only (rooftop:capacity_kw=8)
+# A shared --set that matches no compared option is an error, not a silent no-op.
+
+ALL_OPTION_KEYS = ["community", "balcony", "rooftop", "battery", "plugin-battery",
+                   "battery+rooftop", "battery+balcony"]
+
+
+def parse_compare_keys(raw: str) -> list[str]:
+    keys = [k.strip() for k in raw.split(",") if k.strip()]
+    for k in keys:
+        if k not in ALL_OPTION_KEYS:
+            raise SystemExit(f"--compare unknown option: {k!r}. Known: {', '.join(ALL_OPTION_KEYS)}")
+    if len(set(keys)) != len(keys):
+        raise SystemExit("--compare lists the same option twice")
+    if len(keys) < 2:
+        raise SystemExit("--compare needs at least two options (one option isn't a comparison) — "
+                         "use --option for a single estimate")
+    return keys
+
+
+def split_set(item: str) -> tuple[str | None, str, str]:
+    """'rooftop:capacity_kw=8' -> ('rooftop', 'capacity_kw', '8'); bare key -> (None, key, val)."""
+    if "=" not in item:
+        raise SystemExit(f"--set expects key=value, got: {item!r}")
+    lhs, raw = item.split("=", 1)
+    lhs = lhs.strip()
+    if ":" in lhs:
+        opt, key = lhs.split(":", 1)
+        return opt.strip(), key.strip(), raw
+    return None, lhs, raw
+
+
+def apply_compare_overrides(dicts: dict[str, dict], sets: list[str]) -> None:
+    """Apply scoped/shared --set overrides across the compared options' assumption dicts."""
+    for item in sets or []:
+        opt, key, raw = split_set(item)
+        try:
+            val = float(raw)
+        except ValueError:
+            raise SystemExit(f"--set value must be numeric, got: {raw!r}")
+        if opt is not None:
+            if opt not in dicts:
+                raise SystemExit(f"--set targets {opt!r}, which isn't in --compare. "
+                                 f"Comparing: {', '.join(dicts)}")
+            if key not in dicts[opt]:
+                raise SystemExit(f"--set unknown assumption key for {opt}: {key!r}. "
+                                 f"Known: {', '.join(sorted(dicts[opt]))}")
+            dicts[opt][key] = dicts[opt][key].with_user_value(val)
+            continue
+        touched = [k for k, a in dicts.items() if key in a]
+        if not touched:
+            raise SystemExit(f"--set unknown assumption key: {key!r} — no compared option carries "
+                             f"it. Scope it with option:key=value, or check the key's spelling.")
+        for k in touched:
+            dicts[k][key] = dicts[k][key].with_user_value(val)
+
+
+def build_comparison(keys: list[str], args) -> list[dict]:
+    """[{key, label, assumptions, result, shown}] for each compared option, overrides applied."""
+    dicts: dict[str, dict] = {}
+    modules: dict[str, object] = {}
+    for key in keys:
+        if key == "community":
+            dicts[key] = build_community_assumptions(args, apply_sets=False)
+        else:
+            modules[key], dicts[key] = capital_spec(key)
+    apply_compare_overrides(dicts, args.set)
+
+    rows = []
+    for key in keys:
+        a = dicts[key]
+        if key == "community":
+            bill = args.bill if args.bill is not None else a["default_monthly_bill"].value
+            result = compute_community(
+                monthly_bill=bill,
+                price_per_kwh=a["price_per_kwh"].value,
+                bill_offset_fraction=a["bill_offset_fraction"].value,
+                subscription_discount_pct=a["subscription_discount_pct"].value,
+                allocation_pct=a["allocation_pct"].value,
+                annual_usage_kwh=args.annual_usage,
+            )
+            rows.append({"key": key, "label": "Community Solar (Maine)", "assumptions": a,
+                         "result": result, "shown": None, "bill": bill})
+        else:
+            # The shared usage input reaches rooftop-side options through their own assumption —
+            # the same lift the web's shared usage box performs.
+            if args.annual_usage is not None and "annual_usage_kwh" in a:
+                a["annual_usage_kwh"] = a["annual_usage_kwh"].with_user_value(args.annual_usage)
+            result = modules[key].compute_from_assumptions(a)
+            rows.append({"key": key, "label": CAPITAL_OPTIONS[key]["label"], "assumptions": a,
+                         "result": result, "shown": CAPITAL_OPTIONS[key]["shown"]})
+    return rows
+
+
+def render_compare_text(rows: list[dict]) -> str:
+    out = ["=" * 78, "  Side-by-Side Comparison (Maine)", "=" * 78, ""]
+
+    out.append("  SHARED INPUTS (your situation — they drive every option below)")
+    community = next((r for r in rows if r["key"] == "community"), None)
+    if community:
+        out.append(f"    Monthly bill    : {money(community['bill'])}"
+                   f"   [{community['assumptions']['default_monthly_bill'].tag}]")
+    usage = next((r["assumptions"]["annual_usage_kwh"] for r in rows
+                  if "annual_usage_kwh" in r["assumptions"]), None)
+    if usage is not None:
+        out.append(f"    Annual usage    : {usage.value:,.0f} kWh   [{usage.tag}]")
+    rate = next((r["assumptions"]["opportunity_rate"] for r in rows
+                 if "opportunity_rate" in r["assumptions"]), None)
+    if rate is not None:
+        out.append(f"    Opportunity rate: {rate.value * 100:.0f}%   [{rate.tag}]"
+                   "   (NPVs are only comparable at one rate)")
+    out.append("")
+
+    head = f"    {'OPTION':<32}{'UPFRONT':>10}{'SAVINGS/YR':>12}{'PAYBACK':>10}{'NPV':>12}"
+    out += [head, "    " + "-" * (len(head) - 4)]
+    for r in rows:
+        res = r["result"]
+        if r["key"] == "community":
+            out.append(f"    {r['label']:<32}{'$0':>10}{money(res.annual_savings):>12}{'—':>10}{'—':>12}")
+            continue
+        cap = res.capital
+        payback = f"{cap.simple_payback_years:.1f} yr" if cap.simple_payback_years is not None else "never"
+        out.append(f"    {r['label']:<32}{money(res.upfront_cost):>10}"
+                   f"{money(res.annual_savings):>12}{payback:>10}{money(cap.npv):>12}")
+    out.append("")
+    out += ["  HOW TO READ IT",
+            "    Savings are year 1. NPV converts each option's future savings to today's dollars",
+            "    at the shared opportunity rate and subtracts the upfront cost: above $0 means the",
+            "    option beats investing the same cash. Community solar puts no capital at stake, so",
+            "    payback and NPV don't apply to it.", ""]
+    out += ["  REFINE",
+            "    --set key=value           applies to every option that carries the key (shared)",
+            "    --set option:key=value    applies to one option only (e.g. rooftop:capacity_kw=8)",
+            "    --option KEY              the full ledger — every step and assumption — for one option",
+            ""]
+    for r in rows:
+        unsourced = [a.label for a in r["assumptions"].values() if a.is_unsourced]
+        if unsourced:
+            out.append(f"    ! {r['label']}: unsourced — {'; '.join(unsourced)}")
+    out.append("=" * 78)
+    return "\n".join(out)
+
+
+def render_compare_json(rows: list[dict]) -> str:
+    """Per option, the SAME payload --json emits for it alone — plus the shared inputs."""
+    options = {}
+    for r in rows:
+        options[r["key"]] = (community_payload(r["bill"], r["assumptions"], r["result"])
+                             if r["key"] == "community"
+                             else capital_payload(r["key"], r["assumptions"], r["result"], r["shown"]))
+    shared = {}
+    community = next((r for r in rows if r["key"] == "community"), None)
+    if community:
+        shared["monthly_bill"] = community["bill"]
+    for key in ("annual_usage_kwh", "opportunity_rate"):
+        asm = next((r["assumptions"][key] for r in rows if key in r["assumptions"]), None)
+        if asm is not None:
+            shared[key] = asm_dict(asm)
+    return json.dumps({"comparison": [r["key"] for r in rows], "shared_inputs": shared,
+                       "options": options}, indent=2)
+
+
+# --- shared rendering helpers ----------------------------------------------
+
+def asm_dict(asm: Assumption) -> dict:
+    d = dataclasses.asdict(asm)
+    d["is_unsourced"] = asm.is_unsourced
+    return d
+
+
+def render_assumptions_block(a: dict, shown: list[str]) -> list[str]:
+    out = ["  ASSUMPTIONS (edit any with --set key=value to refine the estimate)"]
+    for key in shown:
+        asm = a[key]
+        out.append(f"    - {asm.label}")
+        out.append(f"        {key} = {asm.value}  ({asm.unit})   [{asm.tag}]")
+        if asm.explain:
+            out.append(f"        what it means: {asm.explain}")
+        if asm.source:
+            cite = asm.source.title + (f" <{asm.source.url}>" if asm.source.url else "")
+            out.append(f"        source: {cite}")
+            if asm.source.what_is_it:
+                out.append(f"        what the source is: {asm.source.what_is_it}")
+            if asm.source.note:
+                out.append(f"        note: {asm.source.note}")
+        elif asm.is_unsourced:
+            out.append("        source: (none yet — do not treat this number as established fact)")
+    return out
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(description="Estimate Maine community-solar savings from a bill.")
-    p.add_argument("--bill", type=float, required=True, help="approximate monthly electricity bill ($)")
-    p.add_argument("--price-per-kwh", type=float, default=None, help="all-in $/kWh (else default)")
-    p.add_argument("--offset-fraction", type=float, default=None, help="portion of bill the credit offsets")
-    p.add_argument("--discount", type=float, default=None, help="subscription discount (fraction, e.g. 0.15)")
-    p.add_argument("--allocation", type=float, default=None, help="share of usage the subscription covers")
-    p.add_argument("--annual-usage", type=float, default=None, help="annual usage in kWh (overrides bill->usage)")
+    # Windows consoles often default to a legacy codepage (cp1252) that can't encode characters
+    # appearing in source notes (e.g. '≥'); degrade to replacement chars instead of crashing.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+    p = argparse.ArgumentParser(description="Estimate Maine solar savings across options.")
+    p.add_argument("--option", choices=ALL_OPTION_KEYS, default="community",
+                   help="which solar option to model (default: community)")
+    p.add_argument("--compare", default=None, metavar="A,B[,C...]",
+                   help="compare two or more options side by side (e.g. community,balcony); "
+                        "--set applies to every option carrying the key, or scope it option:key=value")
+    p.add_argument("--bill", type=float, default=None,
+                   help="monthly bill ($) for community; defaults to the sourced Maine average")
+    p.add_argument("--set", action="append", default=[], metavar="KEY=VAL",
+                   help="override any assumption by key (repeatable); re-tags it user-provided")
     p.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    # community-specific convenience flags (kept for backward compatibility)
+    p.add_argument("--price-per-kwh", type=float, default=None)
+    p.add_argument("--offset-fraction", type=float, default=None)
+    p.add_argument("--discount", type=float, default=None)
+    p.add_argument("--allocation", type=float, default=None)
+    p.add_argument("--annual-usage", type=float, default=None, help="annual usage kWh (community/rooftop)")
     args = p.parse_args(argv)
 
-    a = build_assumptions(args)
-    result = compute(
-        monthly_bill=args.bill,
-        price_per_kwh=a["price_per_kwh"].value,
-        bill_offset_fraction=a["bill_offset_fraction"].value,
-        subscription_discount_pct=a["subscription_discount_pct"].value,
-        allocation_pct=a["allocation_pct"].value,
-        annual_usage_kwh=args.annual_usage,
-    )
-    print(render_json(args.bill, a, result) if args.json else render_text(args.bill, a, result, args.annual_usage))
-    return 0
+    try:
+        if args.compare:
+            rows = build_comparison(parse_compare_keys(args.compare), args)
+            print(render_compare_json(rows) if args.json else render_compare_text(rows))
+            return 0
+
+        if args.option == "community":
+            a = build_community_assumptions(args)
+            # No --bill? Fall back to the sourced average Maine bill (R2) — still an assumption,
+            # shown with its tag, never silently invented.
+            bill = args.bill if args.bill is not None else a["default_monthly_bill"].value
+            result = compute_community(
+                monthly_bill=bill,
+                price_per_kwh=a["price_per_kwh"].value,
+                bill_offset_fraction=a["bill_offset_fraction"].value,
+                subscription_discount_pct=a["subscription_discount_pct"].value,
+                allocation_pct=a["allocation_pct"].value,
+                annual_usage_kwh=args.annual_usage,
+            )
+            print(render_community_json(bill, a, result) if args.json
+                  else render_community_text(bill, a, result, args.annual_usage))
+            return 0
+
+        module, merged = capital_spec(args.option)
+        a = apply_overrides(merged, args.set)
+        result = module.compute_from_assumptions(a)
+        shown = CAPITAL_OPTIONS[args.option]["shown"]
+        print(render_capital_json(args.option, a, result, shown) if args.json
+              else render_capital_text(args.option, a, result, shown))
+        return 0
+    except ValueError as e:
+        p.error(str(e))  # clean "cli.py: error: <message>" instead of a traceback
 
 
 if __name__ == "__main__":

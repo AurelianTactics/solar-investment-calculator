@@ -7,7 +7,10 @@ Ideas captured, not committed. Pulled from the original concept, `STRATEGY.md`, 
 - **Rooftop solar** — brings the capital-allocation / NPV / payback / opportunity-cost engine that is the `STRATEGY.md` centerpiece. Needs generation, system sizing, and net-metering rules.
 - **Balcony / plug-in solar** — small upfront cost, modest bill offset.
 - **Battery storage** — adds energy-security / backup value beyond pure ROI; pairs with rooftop or balcony.
-- **Combinations** — community + rooftop + battery, etc., compared side by side.
+- ~~**Combinations** — community + rooftop + battery, etc., compared side by side.~~ **Done
+  (2026-07-09):** battery+rooftop and battery+balcony shipped as additive stream combos
+  (`src/combo.py`; see `docs/options-integration-notes.md`). Still open here: side-by-side
+  *comparison views* and community-inclusive combinations.
 
 ## Utility / billing depth
 

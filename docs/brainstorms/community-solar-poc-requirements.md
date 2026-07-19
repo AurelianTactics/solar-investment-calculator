@@ -9,6 +9,15 @@ topic: community-solar-poc
 
 This is the Phase 1 planning artifact for the Solar Investment Calculator. It specifies a community-solar proof-of-concept that turns a monthly electricity bill into an estimated annual savings and % off, with every number shown as a labeled, editable, sourced assumption — and frames the phased roadmap so the Phase 2 research brief and Phase 3 build inherit a clean handoff. Planning only; no code.
 
+> **Status update (2026-06-14): Phases 2–4 have landed — this POC is built, sourced, and shipping.**
+> All three Outstanding Questions below are now answered by Phase 2 research and folded into the POC
+> defaults; see [`docs/plans/2026-05-25-phase-4-research-integration.md`](../plans/2026-05-25-phase-4-research-integration.md)
+> for the integration record and `src/assumptions.py` / `web/app.js` for the shipped, cited values.
+> The bill-only default ($150 CMP) now estimates **$221.40/yr (12.3% off, $0 capital)**. This doc is
+> kept as the Phase 1 artifact of record; the Outstanding Questions and Dependencies sections are
+> updated in place to mark what research resolved. Community solar became the foundation the three
+> capital options (balcony / rooftop / battery) were then stacked on.
+
 ---
 
 ## Problem Frame
@@ -106,19 +115,30 @@ Community solar is the first option because it has the simplest capital model (n
 
 ## Dependencies / Assumptions
 
-- Maine community-solar credit mechanics — specifically what portion of the bill (supply vs. delivery) a Net Energy Billing credit offsets — are currently unknown and treated as an assumption pending Phase 2 research.
-- Typical Maine community-solar subscription discount %, any escalators, and credit rollover behavior — assumptions pending research.
-- $/kWh for CMP and Versant — assumptions pending research. The POC supports both utilities; the author's own utility is used for the first concrete numbers.
-- A trustworthy Phase 3 number depends on Phase 2 landing first — consistent with the chosen phase order (2 before 3).
+*Status: all research dependencies below resolved in Phase 2–4 (2026-06-14). Original text kept; resolution noted inline.*
+
+- Maine community-solar credit mechanics — specifically what portion of the bill (supply vs. delivery) a Net Energy Billing credit offsets — are currently unknown and treated as an assumption pending Phase 2 research. → **Resolved:** the residential credit offsets the **per-kWh (volumetric) charges only**, never the fixed monthly charge ≈ **0.82** of a typical 550 kWh CMP bill (`bill_offset_fraction`); Maine OPA + Maine DOE.
+- Typical Maine community-solar subscription discount %, any escalators, and credit rollover behavior — assumptions pending research. → **Resolved:** **15%** discount on credits (`subscription_discount_pct`; Maine OPA 10–15%, Solar Gardens guaranteed 15%); credits **expire after 12 months** (over-subscribing wastes them — `allocation_pct` sized to usage). Escalators: the common Maine model is a flat guaranteed discount; other providers' escalators are unsourced and not modeled (the POC is single-year, so no input binds yet).
+- $/kWh for CMP and Versant — assumptions pending research. The POC supports both utilities; the author's own utility is used for the first concrete numbers. → **Resolved (CMP shipped):** CMP all-in **$0.306/kWh** (`price_per_kwh`; Maine DOE, eff. Jan 1 2026), volumetric ≈ $0.27. Versant numbers exist in research (`../solar-investment-research/wiki/utilities/versant-rates.md`, offset ≈ 0.87–0.88) but are not the shipped default — a utility selector is the clean next enhancement (see Open follow-ups).
+- A trustworthy Phase 3 number depends on Phase 2 landing first — consistent with the chosen phase order (2 before 3). → **Held:** Phase 2 landed first, then Phases 3–4; the shipped default is fully sourced.
 
 ---
 
 ## Outstanding Questions
 
-### Deferred to Planning
+### Resolved by Phase 2 research (folded into the POC defaults, 2026-06-14)
 
-- [Affects R4][Needs research] What portion of a Maine bill (supply vs. delivery) a community-solar Net Energy Billing credit actually offsets.
-- [Affects R3][Needs research] The $/kWh figures to use for CMP and Versant.
-- [Affects R4][Needs research] Typical subscription discount %, escalator terms, and month-to-month credit rollover behavior.
+- [x] [Affects R4] What portion of a Maine bill (supply vs. delivery) a community-solar Net Energy Billing credit actually offsets. → **Per-kWh (volumetric) charges only, not the fixed monthly charge** ≈ 0.82 for a typical 550 kWh CMP bill, rising toward 1.0 for heavy users (usage-dependent, not a true constant). Source: Maine OPA + Maine DOE. Surprise worth surfacing: a "15% discount" nets only ~12% off the *total* bill because the fixed charge is never offset.
+- [x] [Affects R3] The $/kWh figures to use for CMP and Versant. → **CMP all-in $0.306/kWh** (volumetric ≈ $0.27), Maine DOE (eff. Jan 1 2026). Versant ≈ available in research but not shipped as default. Note: starting from a bill, $/kWh cancels out of the savings figure (it only sets the usage shown) — the load-bearing inputs were the offset fraction and the discount.
+- [x] [Affects R4] Typical subscription discount %, escalator terms, and month-to-month credit rollover behavior. → **15% on credits** (OPA 10–15%; Solar Gardens guaranteed 15%); **credits expire after 12 months**; escalators not modeled (single-year POC, common model is flat).
 
-*These three feed the Phase 2 research brief (owned by a separate repo plan).*
+*These three fed the Phase 2 research brief and are now `default (sourced)` in `src/assumptions.py` + `web/app.js`. Full integration record: `docs/plans/2026-05-25-phase-4-research-integration.md`.*
+
+### Open follow-ups (carried to the backlog — none block the POC)
+
+- **Versant utility selector** — research has CMP *and* Versant rates / offset fractions; the POC ships CMP defaults and lets a Versant user edit. A utility dropdown is the clean next enhancement.
+- **Annual rate refresh** — standard-offer supply resets every Jan 1; `price_per_kwh` and the offset fraction drift. Re-pull from the research repo (which has a stale-number health-check) after each January reset.
+- **Usage-derived offset fraction** — compute `bill_offset_fraction` from the user's own usage instead of the typical-bill default, since it is usage-dependent.
+- **Multi-year / escalator view** — would give escalators an input to bind to; out of scope for the single-year POC.
+
+*(The Versant/utility-mechanics line is in `docs/BACKLOG.md`; the rest are recorded here.)*

@@ -1,53 +1,35 @@
 # Solar Investment Calculator
 
-Turn a Maine homeowner's monthly electricity bill into a trustworthy, fact-checkable estimate of
-what a solar move would save — with **every number shown as a labeled, editable, sourced
-assumption**, never a black box. See [`STRATEGY.md`](STRATEGY.md).
+Turn a Maine homeowner's plain question — *"What savings would I get with community solar when my
+bill is $150 a month?"* — into a trustworthy, fact-checkable estimate, with **every number shown as
+a labeled, editable, sourced assumption**, never a black box. Seven options are modeled: community
+solar, balcony/plug-in, rooftop, battery, plug-in/DIY battery (TOU arbitrage), battery+rooftop,
+and battery+balcony. Why this exists: [`STRATEGY.md`](STRATEGY.md).
 
-The first proof of concept covers **community solar** (zero upfront capital). Rooftop, balcony, and
-battery are later iterations ([`docs/BACKLOG.md`](docs/BACKLOG.md)).
-
-## Run it
-
-No dependencies — Python 3 standard library only.
+## Run the website
 
 ```sh
-# Formula-correctness tests (the active metric)
-python3 -m unittest discover -s tests
-
-# CLI: estimate from a bill
-python3 src/cli.py --bill 150
-python3 src/cli.py --bill 150 --discount 0.15 --offset-fraction 0.82 --price-per-kwh 0.306
-python3 src/cli.py --bill 150 --json        # machine-readable (agent-native)
-
-# Website: open web/index.html in a browser, or serve it
-python3 -m http.server --directory web 8000   # then visit http://localhost:8000
+python -m http.server --directory web 8000     # then open http://localhost:8000
 ```
 
-## Layout
+**The "Ask" question box can use an LLM to route options** — that's what turns a typed
+question into an answer. Without it the page still works fully: it falls back to the classic form
+flow (option toggles + editable assumptions) with a notice. To power the question box, do the
+one-time setup in [`service/README.md`](service/README.md) (uv venv outside the repo +
+`ANTHROPIC_API_KEY`), then:
 
-```
-src/
-  assumptions.py   # the assumption data model (label, value, unit, tag, source) + defaults
-  solar_calc.py    # pure calculation core (bill → usage → credits → savings) — SOURCE OF TRUTH
-  cli.py           # human + agent-native CLI surface
-tests/
-  test_solar_calc.py   # worked-example + cancellation + tagging tests (python3 -m unittest)
-web/
-  index.html, app.js   # static guided-walkthrough UI; JS formula mirrors the Python core
-docs/
-  brainstorms/, plans/ # Phase 1 spec and the build plan
+```sh
+%USERPROFILE%\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe service\app.py    # serves http://127.0.0.1:8765
 ```
 
-## How the estimate works
+## CLI
 
-Community solar pays through Net Energy Billing: your usage generates kWh bill credits, and you buy
-those credits from the provider at a discount. Net savings = the discount on the credits your
-subscription generates.
+The CLI is stdlib-only Python 3 — no setup:
 
-`annual_savings = monthly_bill × 12 × bill_offset_fraction × subscription_discount_pct`
+```sh
+python src/cli.py --bill 150
+```
 
-In the bill-first flow `price_per_kwh` cancels out of the dollar result (it only sets the displayed
-usage); the load-bearing numbers are the **offset fraction** and the **discount**. Each assumption
-is tagged `default (sourced)`, `user-provided`, or `unsourced — pending research`, and sourced
-defaults cite the research repo ([`../solar-investment-research`](../solar-investment-research)).
+Everything else — all seven options, overriding any assumption, `--json` for agents, the test
+suite, and how to *verify* the numbers — is in
+[`docs/how-to-use-and-verify.md`](docs/how-to-use-and-verify.md).
