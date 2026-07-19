@@ -39,8 +39,9 @@ import tempfile
 # Files whose content defines "the website". A change to any of these invalidates prior evidence.
 WEB_FILES = ["web/index.html", "web/app.js"]
 
-# Options the page exposes (mirror of the OPTIONS registry in web/app.js) — all six R4 states.
-OPTIONS = ["community", "balcony", "rooftop", "battery", "battery+rooftop", "battery+balcony"]
+# Options the page exposes (mirror of the OPTIONS registry in web/app.js) — all seven R4 states.
+OPTIONS = ["community", "balcony", "rooftop", "battery", "plugin-battery",
+           "battery+rooftop", "battery+balcony"]
 # Page states the browser loop drives: every option, plus the side-by-side comparison view
 # (entered via the global selectCompare(); every compared option renders its own ledger section).
 STATES = OPTIONS + ["compare"]

@@ -18,18 +18,21 @@ uv pip install -r requirements.txt --python %USERPROFILE%\claude_code_repos\my-u
 The core (`src/`) and verifier (`tools/`) stay stdlib-only by construction — only `service/` and
 the test runner need the venv.
 
-Six option states are modeled:
+Seven option states are modeled:
 
 - **community solar** — zero capital; `src/solar_calc.py`.
-- **balcony / plug-in, rooftop, battery** — capital options on the shared capital-allocation engine
-  (`src/capital.py`): each is a small pure module (`src/balcony.py`, `src/rooftop.py`,
-  `src/battery.py`) that produces upfront cost + annual savings, then asks the engine for
-  payback/NPV vs. investing the cash.
+- **balcony / plug-in, rooftop, battery, plugin-battery** — capital options on the shared
+  capital-allocation engine (`src/capital.py`): each is a small pure module (`src/balcony.py`,
+  `src/rooftop.py`, `src/battery.py`, `src/plugin_battery.py`) that produces upfront cost +
+  annual savings, then asks the engine for payback/NPV vs. investing the cash. Battery and
+  plugin-battery share the TOU three-case arbitrage engine (`src/tou.py`): battery via the
+  off-by-default `tou_enrolled` mode, plugin-battery as its whole point.
 - **battery+rooftop, battery+balcony** — stream-wise additive combos (`src/combo.py` mechanism,
   `src/battery_rooftop.py` / `src/battery_balcony.py` thin configs): each component keeps its own
   escalation/degradation/horizon stream; `capital.combine()` sums per-year cashflows and derives
   NPV/payback from the summed stream. Battery keys are `battery_`-prefixed in combo assumption
-  dicts so collisions (`federal_itc_pct`, `horizon_years`) stay per-component.
+  dicts so collisions (`federal_itc_pct`, `horizon_years`) stay per-component. Plugin-battery
+  stands alone (no pairings).
 
 `src/assumptions.py` is the shared assumption data model + per-option defaults. Every assumption
 carries `explain` (newcomer-grade plain English) and sourced defaults carry `source.what_is_it`
@@ -77,12 +80,12 @@ the key, mirroring the web's "Shared inputs" block), `--set option:key=value` mo
 be written pytest-style).
 
 The Python core is the **source of truth**. `web/app.js` is a mirror with a per-option self-check
-banner (all six states, combos included); keep it in sync when a formula changes.
+banner (all seven states, combos included); keep it in sync when a formula changes.
 
 **Web rendering metric — run after any `web/` change.** "The website works" must be *observed*, not
 claimed. Verification is **two-layered**:
 
-1. **Deterministic loop** — `tools/verify_web.py run` (alias `/verify-web`) drives all six option
+1. **Deterministic loop** — `tools/verify_web.py run` (alias `/verify-web`) drives all seven option
    states in a headless chromium-family browser (Chrome/Chromium/Edge, discovered on any OS),
    asserts each renders, the parity self-check did not fire, and the agent-fallback notice appears
    when asking with the service unreachable; writes screenshots + a hashed evidence record to

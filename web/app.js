@@ -1,4 +1,4 @@
-// Solar investment calculator — web UI (question-first, all six option states).
+// Solar investment calculator — web UI (question-first, all seven option states).
 //
 // This JS is a FAITHFUL MIRROR of the Python source of truth (../src/*.py). On load it re-runs the
 // hand-verified worked example for EVERY option — including the two combos — via verifyAll(); if
@@ -6,8 +6,8 @@
 // numbers. The Python suite (pytest tests) remains the metric.
 //
 // Layout contract with tools/verify_web.py: selectOption(key) stays a GLOBAL function accepting
-// all six option keys ("community", "balcony", "rooftop", "battery", "battery+rooftop",
-// "battery+balcony"); selectCompare(keys) stays a GLOBAL entering the side-by-side comparison
+// all seven option keys ("community", "balcony", "rooftop", "battery", "plugin-battery",
+// "battery+rooftop", "battery+balcony"); selectCompare(keys) stays a GLOBAL entering the side-by-side comparison
 // view (renders `.cmp-table`, plus one `details.opt-sec` ledger section per compared option in
 // #detail, each rendering `.step-label`); results render `.big` and `.step-label`; the question
 // box is `#question`; the fallback notice is `#notice.show` and its text always contains "without
@@ -155,19 +155,91 @@ function computeRooftop(p) {
   };
 }
 
+// --- TOU three-case engine (mirror of src/tou.py) --------------------------
+// The master equation, delivery-only: savings_vs_flat = U × discount − residual × penalty.
+// Case 2 (under the 15.8% line, "gravy"): baseline is TOU-alone, the battery earns only the
+// incremental shifted kWh × penalty. Case 3 (over the line, "rescue"): baseline is FLAT ($0),
+// the battery earns the whole net vs. flat, floored at 0 (below 0 you just stay on flat).
+function touEvaluate({ annualUsageKwh, onPeakShare, residualCoverage, enrollmentDiscountPerKwh, residualPenaltyPerKwh }) {
+  if (annualUsageKwh < 0) throw new Error("annual_usage_kwh must be >= 0");
+  if (onPeakShare < 0 || onPeakShare > 1) throw new Error("on_peak_share must be in [0,1]");
+  if (residualCoverage < 0 || residualCoverage > 1) throw new Error("residual_coverage must be in [0,1]");
+  if (enrollmentDiscountPerKwh < 0) throw new Error("enrollment_discount_per_kwh must be >= 0");
+  if (residualPenaltyPerKwh <= 0) throw new Error("residual_penalty_per_kwh must be > 0");
+  const onPeakKwh = annualUsageKwh * onPeakShare;
+  const thresholdShare = enrollmentDiscountPerKwh / residualPenaltyPerKwh;
+  const underThreshold = onPeakShare < thresholdShare;
+  const enrollmentOnlySavings = annualUsageKwh * enrollmentDiscountPerKwh - onPeakKwh * residualPenaltyPerKwh;
+  const shiftedKwh = residualCoverage * onPeakKwh;
+  const residualKwh = onPeakKwh - shiftedKwh;
+  const savingsVsFlat = annualUsageKwh * enrollmentDiscountPerKwh - residualKwh * residualPenaltyPerKwh;
+  const kase = underThreshold ? 2 : 3;
+  const arbitrage = underThreshold ? shiftedKwh * residualPenaltyPerKwh : Math.max(0, savingsVsFlat);
+  return { onPeakKwh, thresholdShare, underThreshold, case: kase, enrollmentOnlySavings, shiftedKwh, residualKwh, savingsVsFlat, arbitrage };
+}
+
 // --- battery (mirror of src/battery.py) ------------------------------------
 function computeBattery(p) {
   if (p.federalItcPct < 0 || p.federalItcPct > 1) throw new Error("federal_itc_pct must be in [0,1]");
   const gross = p.usableKwh * p.installedCostPerKwh;
   const net = gross * (1 - p.federalItcPct);
-  const annualSavings = p.annualBillSavings + p.resilienceValuePerYear;
+  const tou = p.touEnrolled
+    ? touEvaluate({ annualUsageKwh: p.annualUsageKwh, onPeakShare: p.onPeakShare, residualCoverage: p.residualCoverage, enrollmentDiscountPerKwh: p.enrollmentDiscountPerKwh, residualPenaltyPerKwh: p.residualPenaltyPerKwh })
+    : null;
+  const touArbitrage = tou ? tou.arbitrage : 0;
+  const annualSavings = p.annualBillSavings + touArbitrage + p.resilienceValuePerYear;
+  const touLabel = tou
+    ? `TOU mode ON → Case ${tou.case} arbitrage (threshold: on-peak share < ${tou.thresholdShare.toFixed(4)})`
+    : "TOU mode off (default) → no arbitrage on a flat rate";
+  const touFormula = tou
+    ? (tou.case === 2 ? "case 2 (gravy): arb = shifted_kwh × residual_penalty_per_kwh"
+                      : "case 3 (rescue): arb = max(0, usage × discount − residual_kwh × penalty)")
+    : "tou_arbitrage = 0 (tou_enrolled = 0: staying on the flat rate)";
   return {
-    annualSavings, upfrontCost: net,
-    capital: capitalCompare({ upfrontCost: net, annualSavingsYear1: annualSavings, horizonYears: p.horizonYears, opportunityRate: p.opportunityRate, escalation: 0, degradation: 0 }),
+    annualSavings, upfrontCost: net, tou, touArbitrage,
+    capital: capitalCompare({ upfrontCost: net, annualSavingsYear1: annualSavings, horizonYears: p.horizonYears, opportunityRate: p.opportunityRate, escalation: 0, degradation: p.annualDegradation || 0 }),
     steps: [
       { n: 1, label: "Capacity & price → gross system cost", formula: "gross_cost = usable_kwh × installed_cost_per_kwh", value: gross, unit: "$" },
       { n: 2, label: "Federal credit → net upfront capital", formula: "net_cost = gross_cost × (1 − federal_itc_pct)", value: net, unit: "$" },
-      { n: 3, label: "Bill savings + resilience → annual value", formula: "annual_value = annual_bill_savings + resilience_value_per_year", value: annualSavings, unit: "$/yr" },
+      { n: 3, label: touLabel, formula: touFormula, value: touArbitrage, unit: "$/yr" },
+      { n: 4, label: "Bill savings + TOU arbitrage + resilience → annual value", formula: "annual_value = annual_bill_savings + tou_arbitrage + resilience_value_per_year", value: annualSavings, unit: "$/yr" },
+    ],
+  };
+}
+
+// --- plug-in / DIY DER battery (mirror of src/plugin_battery.py) ------------
+function computePluginBattery(p) {
+  if (p.installedCostPerKwh < 0) throw new Error("installed_cost_per_kwh must be >= 0");
+  if (p.cyclesPerYear <= 0) throw new Error("cycles_per_year must be > 0");
+  if (p.federalItcPct < 0 || p.federalItcPct > 1) throw new Error("federal_itc_pct must be in [0,1]");
+  const t = touEvaluate({ annualUsageKwh: p.annualUsageKwh, onPeakShare: p.onPeakShare, residualCoverage: p.residualCoverage, enrollmentDiscountPerKwh: p.enrollmentDiscountPerKwh, residualPenaltyPerKwh: p.residualPenaltyPerKwh });
+  const usableKwhNeeded = t.shiftedKwh / p.cyclesPerYear;
+  const gross = usableKwhNeeded * p.installedCostPerKwh;
+  const net = gross * (1 - p.federalItcPct);
+  const annualSavings = t.arbitrage + p.resilienceValuePerYear;
+  const breakEven = t.case === 2
+    ? p.valuePerUsableKwhYr * p.horizonYears
+    : (usableKwhNeeded > 0 ? t.arbitrage * p.horizonYears / usableKwhNeeded : 0);
+  const arbFormula = t.case === 2
+    ? "case 2 (gravy): arb = shifted_kwh × residual_penalty_per_kwh (baseline: TOU already wins)"
+    : "case 3 (rescue): arb = max(0, usage × discount − residual_kwh × penalty) (baseline: flat)";
+  const beFormula = t.case === 2
+    ? "break_even = value_per_usable_kwh_yr × horizon_years"
+    : "break_even = tou_arbitrage × horizon_years ÷ usable_kwh_needed";
+  return {
+    annualSavings, upfrontCost: net, tou: t, case: t.case, usableKwhNeeded, breakEvenCostPerKwh: breakEven,
+    capital: capitalCompare({ upfrontCost: net, annualSavingsYear1: annualSavings, horizonYears: p.horizonYears, opportunityRate: p.opportunityRate, escalation: 0, degradation: 0 }),
+    steps: [
+      { n: 1, label: "Usage × on-peak share → on-peak kWh (weekday 5–9 p.m.)", formula: "on_peak_kwh = annual_usage_kwh × on_peak_share", value: t.onPeakKwh, unit: "kWh/yr" },
+      { n: 2, label: `Threshold check → which TOU case you're in (under ${t.thresholdShare.toFixed(4)} on-peak = case 2 gravy; over = case 3 rescue)`, formula: "case = 2 if on_peak_share < enrollment_discount ÷ residual_penalty else 3", value: t.case, unit: "case" },
+      { n: 3, label: "Enrolling with NO battery (the Case-1 answer; > 0 means free money by enrolling)", formula: "enrollment_only = usage × enrollment_discount − on_peak_kwh × residual_penalty", value: t.enrollmentOnlySavings, unit: "$/yr" },
+      { n: 4, label: "Battery coverage → shifted on-peak kWh (the rest stays on-peak)", formula: "shifted_kwh = residual_coverage × on_peak_kwh", value: t.shiftedKwh, unit: "kWh/yr" },
+      { n: 5, label: "Shifted load ÷ cycles → battery size needed", formula: "usable_kwh_needed = shifted_kwh ÷ cycles_per_year", value: usableKwhNeeded, unit: "kWh" },
+      { n: 6, label: "Size × price → gross cost", formula: "gross_cost = usable_kwh_needed × installed_cost_per_kwh", value: gross, unit: "$" },
+      { n: 7, label: "Federal credit → net upfront capital (25D expired; no TPO for a self-install)", formula: "net_cost = gross_cost × (1 − federal_itc_pct)", value: net, unit: "$" },
+      { n: 8, label: `TOU arbitrage for your case (case ${t.case})`, formula: arbFormula, value: t.arbitrage, unit: "$/yr" },
+      { n: 9, label: "Break-even installed cost for this case (the shopping number)", formula: beFormula, value: breakEven, unit: "$/kWh" },
+      { n: 10, label: "Arbitrage + resilience → annual value", formula: "annual_value = tou_arbitrage + resilience_value_per_year", value: annualSavings, unit: "$/yr" },
     ],
   };
 }
@@ -218,6 +290,31 @@ function capitalDefaults() {
       S("Modeling choice: 25-year PV horizon", null, "Batteries warrant ~10 yr — that option overrides this.",
         "A modeling choice matching the 25-year performance warranty most panel manufacturers publish — the industry's own definition of a panel's dependable life."),
       "How many years of savings the comparison counts before it stops. 25 years is the length of a typical solar-panel performance warranty, so it's the standard planning life for PV. A longer horizon gives solar more years to pay off; a shorter one favors keeping the cash invested. Batteries use their own shorter 10-year horizon."),
+  };
+}
+
+// --- TOU arbitrage inputs (mirror of _tou_shared_assumptions()) -------------
+const WHAT_CMP_TOU = "Central Maine Power's own published tariff page for its optional residential Time-of-Use delivery rate (effective July 1, 2026). Utility rates are approved in public filings with the Maine PUC, so this is the authoritative statement of the on-peak, off-peak, and flat delivery prices the arithmetic uses.";
+const CMP_TOU_URL = "https://www.cmpco.com/time-of-use-delivery-rate";
+
+function touSharedDefaults() {
+  return {
+    annual_usage_kwh: A("annual_usage_kwh", "Your annual electricity usage", 6600, "kWh", TAGS.DEFAULT_SOURCED,
+      S("Typical CMP residential usage (~550 kWh/month)", null, "Scales the TOU enrollment discount (usage × $0.058120/kWh ceiling). Edit to your own annual kWh.",
+        "A modeling choice: ~550 kWh/month is the typical CMP residential figure used across the state's own rate documents. Replace it with the actual total from twelve months of your own bills."),
+      "How much electricity your home uses in a year. In the TOU model it scales the enrollment discount: every kWh you use earns the flat-vs-off-peak delivery discount just by being enrolled, so a bigger home has a bigger arbitrage ceiling. Your utility bill's usage history has the real number — use it."),
+    on_peak_share: A("on_peak_share", "Share of your usage during on-peak hours (weekday 5–9 p.m.)", 0.25, "fraction", TAGS.UNSOURCED, null,
+      "The fraction of your electricity used on weekdays between 5 and 9 p.m. — the single number that decides which TOU case you're in. Under 15.8%, the TOU rate beats the flat rate even with no battery (free money by enrolling); over it, the on-peak penalty (3.6× the flat rate) bites and a battery has to rescue you. Nobody can guess this for you: download your hourly usage from your utility's website and measure it. The 25% default is only a placeholder for a typical evening-heavy home."),
+    residual_coverage: A("residual_coverage", "Share of on-peak usage the battery can actually shift off-peak", 0.7, "fraction", TAGS.UNSOURCED, null,
+      "How much of your 5–9 p.m. load the battery can actually serve. A single-outlet plug-in unit covers whatever is plugged into it; a multi-circuit subpanel setup covers more. The hard part is winter electric heat — often the biggest on-peak load and exactly what a small battery can't carry — which is why this dial (0.5–0.9 is the plausible range) is the model's load-bearing unknown. No researched Maine figure has landed; 0.7 is a placeholder."),
+    enrollment_discount_per_kwh: A("enrollment_discount_per_kwh", "TOU enrollment discount per kWh (flat minus off-peak delivery, CMP)", 0.058120, "$/kWh", TAGS.DEFAULT_SOURCED,
+      S("CMP Rate TOU tariff (eff. Jul 1, 2026): $0.119590 flat − $0.061470 off-peak", CMP_TOU_URL,
+        "Versant's 'Home Eco' TOU (BHD Rate A-4 / MPD A-4M) has a much thinner spread — set this and the penalty so their difference matches its ~$0.101 (BHD) / ~$0.099 (MPD) peak-vs-off-peak gap; its on-peak runs only ~6% above flat, so enrolling there is nearly risk-free and works weekends too.", WHAT_CMP_TOU),
+      "What every kWh you use earns simply by being enrolled in the TOU rate, as long as it's bought off-peak: the flat delivery rate ($0.119590) minus the off-peak delivery rate ($0.061470). Multiply by your annual usage and you have the absolute ceiling on TOU savings — what a magic free battery covering everything would earn. Delivery-only: the supply price is the same on both rates and cancels out."),
+    residual_penalty_per_kwh: A("residual_penalty_per_kwh", "On-peak penalty per residual kWh (on-peak minus off-peak delivery, CMP)", 0.367366, "$/kWh", TAGS.DEFAULT_SOURCED,
+      S("CMP Rate TOU tariff (eff. Jul 1, 2026): $0.428836 on-peak − $0.061470 off-peak", CMP_TOU_URL,
+        "The threshold on-peak share (below which TOU beats flat with no battery) is discount ÷ penalty = 0.1582 — matching CMP's own '≥86% off-peak' guidance. Versant Home Eco's penalty is only ~$0.10 with on-peak ~6% above flat: thin arbitrage, near-zero enrollment risk.", WHAT_CMP_TOU),
+      "What every kWh you still buy during weekday 5–9 p.m. costs you versus buying it off-peak: the on-peak delivery rate ($0.428836, about 3.6× the flat rate) minus the off-peak rate ($0.061470). It's also what every kWh a battery SHIFTS off-peak avoids — but it is the penalty avoided, not the saving versus the flat rate, which is why the model never multiplies it by your whole usage."),
   };
 }
 
@@ -324,11 +421,12 @@ const OPTIONS = {
   },
   battery: {
     label: "Home Battery Storage",
-    blurb: "Bought for resilience, not ROI. With no federal credit and ~$0 Maine bill savings, the pure-economics NPV is strongly negative — by design.",
+    blurb: "Bought for resilience, not ROI. On the default flat rate with no owner-bought federal credit, the pure-economics NPV is strongly negative — by design. The one bill lever is the off-by-default TOU mode.",
     describe: (a) => `a ${a.usable_kwh.value} kWh home battery — bought for resilience; the ledger prices that honestly`,
-    followup: "what backup power through an outage is genuinely worth to you per year — it's the number that decides this one",
+    followup: "what backup power through an outage is genuinely worth to you per year — and, if you'd enroll in a TOU rate, your on-peak share (weekday 5–9 p.m.) from your utility's hourly data",
     defaults: () => {
       const c = capitalDefaults();
+      const t = touSharedDefaults();
       return {
         usable_kwh: A("usable_kwh", "Usable battery capacity", 13.5, "kWh", TAGS.DEFAULT_SOURCED,
           S("Tesla Powerwall 3 usable capacity (EnergySage)", "https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/", null,
@@ -337,25 +435,100 @@ const OPTIONS = {
         installed_cost_per_kwh: A("installed_cost_per_kwh", "Installed battery cost per kWh", 998, "$/kWh", TAGS.DEFAULT_SOURCED,
           S("EnergySage Marketplace average — $998/kWh (2026)", "https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/", "~$13,473 all-in for a 13.5 kWh Powerwall 3.", WHAT_ENERGYSAGE),
           "The installed price per kilowatt-hour of storage — hardware plus electrician, permits, and commissioning. Multiply by capacity for the sticker price. This number is what makes battery economics hard: at ~$1,000/kWh, a whole-home battery costs as much as a used car, while its yearly bill savings in Maine are close to zero."),
-        federal_itc_pct: A("federal_itc_pct", "Federal tax credit on battery cost", 0.0, "fraction", TAGS.DEFAULT_SOURCED,
-          S("Battery 25D credit EXPIRED Dec 31, 2025 (was 30%)", "https://homes.rewiringamerica.org/federal-incentives/25d-rooftop-solar-tax-credit", null, WHAT_REWIRING),
-          "The share of the battery's cost the federal government returns as a tax credit. The 30% residential credit (25D) covered home batteries of 3 kWh or more until it expired December 31, 2025 — so a 2026 buyer gets zero. That removed the single biggest subsidy from home-battery economics."),
-        annual_bill_savings: A("annual_bill_savings", "Annual electricity-bill savings from the battery", 0.0, "$", TAGS.DEFAULT_SOURCED,
-          S("Modeling choice: ~$0 for a typical Maine customer", null, "No strong residential TOU arbitrage; NEB already credits export at retail.",
-            "A modeling choice this calculator states openly: with flat residential rates and retail-value NEB credits, there is no price spread for a battery to earn. The reasoning is in the note; there is no external study behind the $0 — it follows from how Maine rates are structured."),
-          "Money the battery saves on the bill itself each year — by storing cheap power and using it when power is expensive. Maine residential rates are mostly flat (no big day/night price spread), and rooftop export is already credited at retail value, so there's essentially nothing to arbitrage: the honest default is $0."),
+        federal_itc_pct: A("federal_itc_pct", "Federal credit reaching you (owner-bought 0; lease/PPA pass-through unknown)", 0.0, "fraction", TAGS.DEFAULT_SOURCED,
+          S("25D EXPIRED Dec 31, 2025 (owner-bought: $0); 48E survives via lease/PPA", "https://homes.rewiringamerica.org/federal-incentives/25d-rooftop-solar-tax-credit",
+            "48E covers standalone storage begun before 2033 (FEOC content rules apply: ≥55% non-PFE in 2026); the installer claims it on Form 3468 — the homeowner never files Form 5695. Pass-through % to a Maine homeowner is unsourced.", WHAT_REWIRING),
+          "The share of the battery's cost that federal incentives actually return to you. This is now a two-path financing switch, not a single rate. Owner-bought (cash or loan): the 30% residential credit (25D) expired December 31, 2025, so a 2026 buyer gets zero — the default. Lease/PPA (third-party-owned): the commercial 48E credit survives for standalone storage — the provider claims up to 30% and passes some of it through as lower payments — but how much reaches a Maine homeowner is an open research question, so don't pencil in a number you weren't quoted. Set this above 0 only to model a pass-through you can verify in an actual lease offer."),
+        annual_bill_savings: A("annual_bill_savings", "Annual electricity-bill savings from the battery (outside the TOU mode)", 0.0, "$", TAGS.DEFAULT_SOURCED,
+          S("Modeling choice: ~$0 on the default flat rate (arbitrage lives in the TOU mode)", null,
+            "CMP's optional Rate TOU (eff. Jul 1, 2026) is a genuine but conditional, delivery-only arbitrage — modeled by the off-by-default tou_enrolled mode, not by this number. On the flat rate there is no spread; NEB already credits rooftop export at retail.",
+            "A modeling choice this calculator states openly: with a flat rate and retail-value NEB credits, there is no price spread for a battery to earn outside the optional TOU rate. The reasoning is in the note; the TOU rates themselves are sourced on the arbitrage assumptions."),
+          "Money the battery saves on the bill itself each year, outside the TOU arbitrage modeled separately. On the default flat rate (CMP Rate A: delivery AND supply both flat) there is no intraday price spread, and rooftop export is already credited at retail value under net energy billing — so the honest default is $0. Residential TOU arbitrage DOES exist, but it's conditional and delivery-only, so it lives in its own switch (tou_enrolled) rather than being buried here."),
+        tou_enrolled: A("tou_enrolled", "Enrolled in the optional TOU delivery rate? (0 = no, 1 = yes)", 0.0, "0 or 1", TAGS.DEFAULT_SOURCED,
+          S("Modeling choice: TOU arbitrage is an optional, off-by-default mode", null,
+            "Enrollment is a choice, not the default — and CMP's spread is fat but conditional (needs ~86% off-peak), so the mode ships off. Versant's Home Eco is thin but nearly risk-free.", WHAT_MODELING_CHOICE),
+          "Whether you've switched from the default flat delivery rate to the optional time-of-use rate (CMP 'Rate TOU', Versant 'Home Eco'). Off by default because most homes are on the flat rate, where a battery has nothing to arbitrage. Turn it on (set to 1) and the battery faces the three-case TOU math: under a 15.8% on-peak share the rate alone wins and the battery adds gravy; over it, the battery has to rescue the enrollment from the 3.6× on-peak penalty."),
+        annual_usage_kwh: t.annual_usage_kwh,
+        on_peak_share: t.on_peak_share,
+        residual_coverage: t.residual_coverage,
+        enrollment_discount_per_kwh: t.enrollment_discount_per_kwh,
+        residual_penalty_per_kwh: t.residual_penalty_per_kwh,
         resilience_value_per_year: A("resilience_value_per_year", "What backup power during outages is worth to you per year", 200, "$", TAGS.UNSOURCED, null,
           "What not losing power in an outage is worth to YOU each year — the real reason Mainers buy batteries. It's inherently personal: spoiled food, a sump pump that must run, medical equipment, working from home through an ice storm. It's kept separate from bill savings so the pure-economics verdict stays honest. No researched number exists; $200 is a placeholder meant to make you think about your own answer."),
+        annual_degradation: A("annual_degradation", "Annual battery capacity fade", 0.03, "fraction", TAGS.DEFAULT_SOURCED,
+          S("Modeling choice: ~3%/yr LFP capacity fade (1–4%/yr range)", null,
+            "Bracketed by the LFP literature and the 70%@10yr warranty point; a measured Powerwall 3 curve (plus a Maine cold-climate adjustment) would replace it.", WHAT_MODELING_CHOICE),
+          "How much usable capacity the battery loses each year as its cells age. LFP chemistry (Powerwall 3) fades roughly 1–4% a year, and the fade continues past the warranty's 70%-at-10-years floor. The model trims each future year's value by this rate, the battery equivalent of panel degradation. Deep-cycling daily to chase TOU savings pushes you toward the fast end."),
+        warranty_years: A("warranty_years", "Warranty term (the guarantee floor — not the expected life)", 10, "years", TAGS.DEFAULT_SOURCED,
+          S("Tesla Powerwall warranty — 10 years, 70% capacity retention", "https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/",
+            "Unlimited cycles for solar use — a signal Tesla doesn't expect death at year 10. The warranty is the risk floor; the horizon models the expected life.",
+            "The manufacturer's own warranty terms, as reported in EnergySage's marketplace review — the industry's definition of the battery's guaranteed (not expected) life."),
+          "How long the manufacturer guarantees the battery (Tesla: 70% capacity retention at 10 years, unlimited cycles for a solar home). Like a car warranty, it's a floor, not a life expectancy — which is why the analysis horizon below is longer. This number doesn't enter the math; it's here so the risk window (years beyond warranty are on you) stays visible next to the service-life horizon the dollars are computed over."),
         opportunity_rate: c.opportunity_rate,
-        horizon_years: A("horizon_years", "Analysis horizon (battery warranty life)", 10, "years", TAGS.DEFAULT_SOURCED,
-          S("Tesla Powerwall warranty — 10 years (70% retention)", "https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/", null,
-            "The manufacturer's own warranty terms (Tesla guarantees 70% capacity retention at 10 years), as reported in EnergySage's marketplace review — the industry's definition of the battery's dependable life."),
-          "How many years of battery value the comparison counts — set to the 10-year warranty, after which capacity is no longer guaranteed. That's much shorter than the 25-year panel horizon, which is a big part of why battery economics look worse than PV: the same upfront cost has fewer years to earn its keep."),
+        horizon_years: A("horizon_years", "Analysis horizon (expected battery service life)", 13, "years", TAGS.DEFAULT_SOURCED,
+          S("Expected Powerwall 3 service life ~12–15 yr (default 13); warranty is 10", "https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/",
+            "Warranty (10 yr, 70% retention) ≠ life. Model the ~13-yr expected life with continued ~3%/yr fade; keep warranty_years as the separate risk window.",
+            "A modeling choice anchored to the manufacturer's warranty terms and LFP-lifespan reporting (EnergySage review plus battery-life explainers): the warranty floor is 10 years, the reported expected service life ~12–15."),
+          "How many years of battery value the comparison counts — set to the expected service life of an LFP battery like the Powerwall 3 (~12–15 years, default 13), not the 10-year warranty, which is a guarantee floor the way a car warranty is. Still much shorter than the 25-year panel horizon. Honest caveat: with ~$0 bill savings the extra years add ~$0 each, so the longer horizon nudges NPV without flipping the resilience-not-ROI verdict — its real effect is that you shouldn't budget a year-10 replacement."),
       };
     },
     run: (a) => computeBattery({
       usableKwh: a.usable_kwh.value, installedCostPerKwh: a.installed_cost_per_kwh.value, federalItcPct: a.federal_itc_pct.value,
       annualBillSavings: a.annual_bill_savings.value, resilienceValuePerYear: a.resilience_value_per_year.value,
+      horizonYears: a.horizon_years.value, opportunityRate: a.opportunity_rate.value,
+      annualDegradation: a.annual_degradation.value, touEnrolled: !!a.tou_enrolled.value,
+      annualUsageKwh: a.annual_usage_kwh.value, onPeakShare: a.on_peak_share.value,
+      residualCoverage: a.residual_coverage.value,
+      enrollmentDiscountPerKwh: a.enrollment_discount_per_kwh.value,
+      residualPenaltyPerKwh: a.residual_penalty_per_kwh.value,
+    }),
+  },
+  "plugin-battery": {
+    label: "Plug-In / DIY Battery",
+    blurb: "A buy-and-plug battery arbitraging CMP's optional TOU rate. One equation, three cases: under a 15.8% on-peak share enrolling alone is free money (case 1) and a battery adds gravy (case 2); over it, the battery must rescue you from the 3.6× on-peak penalty (case 3) — and a plug-in can't cover winter electric heat.",
+    describe: (a) => {
+      const threshold = a.enrollment_discount_per_kwh.value / a.residual_penalty_per_kwh.value;
+      return a.on_peak_share.value < threshold
+        ? `a plug-in TOU battery, Case 2 (gravy): you're under the ${(threshold * 100).toFixed(1)}% on-peak line, so enrolling alone already wins — the battery's shifted kWh are pure extra`
+        : `a plug-in TOU battery, Case 3 (rescue): you're over the ${(threshold * 100).toFixed(1)}% on-peak line, so the battery must claw back the on-peak penalty before TOU beats flat — and winter electric heat is the load it likely can't reach`;
+    },
+    followup: "your on-peak share — the fraction of your usage on weekdays 5–9 p.m., from your utility's hourly download — it alone decides which case you're in",
+    example: "I use 6,600 kWh a year and 25% of it is on weekday evenings — is a plug-in battery worth it?",
+    defaults: () => {
+      const c = capitalDefaults();
+      return {
+        ...touSharedDefaults(),
+        cycles_per_year: A("cycles_per_year", "Charge/discharge cycles per year (one per on-peak weekday)", 250, "cycles/yr", TAGS.DEFAULT_SOURCED,
+          S("Modeling choice: 250 weekday cycles/yr (CMP on-peak is weekdays 5–9 p.m.)", null,
+            "~52 weeks × 5 weekdays minus holidays. Derived from the CMP tariff's on-peak definition; the count itself is a stated modeling choice.", WHAT_MODELING_CHOICE),
+          "How many times a year the battery runs its daily routine: charge off-peak, discharge through the 5–9 p.m. window. On-peak hours exist only on non-holiday weekdays, so ~250 cycles a year is the ceiling. It also sizes the battery: the kWh you want shifted per year, divided by the cycles available to shift them, is the usable capacity you need to buy."),
+        value_per_usable_kwh_yr: A("value_per_usable_kwh_yr", "Arbitrage value per usable kWh of battery per year (Case 2)", 90.13, "$/kWh/yr", TAGS.DEFAULT_SOURCED,
+          S("CMP Rate TOU arithmetic: 250 × ($0.428836 − $0.061470/0.90) ≈ $90.13", CMP_TOU_URL,
+            "Exact algebra on the sourced tariff rates with a 0.90 round-trip efficiency. Break-even ≈ $901/kWh simple over 10 yr (~$633 at 7% NPV).", WHAT_CMP_TOU),
+          "What one kWh of battery capacity earns per year when every cycle is clean gravy (Case 2): 250 weekday cycles times the on-peak price avoided, net of the ~10% round-trip charging loss. Multiply by the analysis horizon and you get the Case-2 break-even installed cost — about $901/kWh over 10 years — which is why a cheap plug-in unit clears it and a $998/kWh Powerwall doesn't."),
+        installed_cost_per_kwh: A("installed_cost_per_kwh", "Plug-in battery cost per usable kWh", 600, "$/kWh", TAGS.UNSOURCED, null,
+          "What a buy-and-plug battery costs per usable kWh. Ballparks: consumer power stations (EcoFlow, Bluetti, Anker) run roughly $500–700/kWh; a DIY LFP battery plus inverter more like $300–500/kWh. That range is the whole verdict in Case 3, where the break-even price falls as your on-peak share worsens — only the cheap end clears it. No verbatim price page has been ingested yet, so $600 is a placeholder: price a real unit before deciding."),
+        federal_itc_pct: A("federal_itc_pct", "Federal tax credit on battery cost", 0.0, "fraction", TAGS.DEFAULT_SOURCED,
+          S("25D expired Dec 31, 2025; no third-party-ownership path for a self-install", "https://homes.rewiringamerica.org/federal-incentives/25d-rooftop-solar-tax-credit",
+            "A 2026 buy-and-plug buyer gets $0 federal credit.", WHAT_REWIRING),
+          "The share of the cost the federal government returns as a tax credit: zero. The residential credit (25D) expired December 31, 2025, and the surviving commercial path (48E) reaches homeowners only through a lease/PPA provider — which a self-installed plug-in battery doesn't have. Unlike the installed battery, there's no financing structure that changes this answer."),
+        resilience_value_per_year: A("resilience_value_per_year", "What backup power during outages is worth to you per year", 200, "$", TAGS.UNSOURCED, null,
+          "What not losing power in an outage is worth to YOU each year. A plug-in battery doubles as portable backup — fridge, phones, a sump pump through an ice storm — which for many buyers is the real reason to own one, with the TOU arbitrage as the kicker. Kept separate from the arbitrage so the pure-economics verdict stays honest. No researched number exists; $200 is a placeholder meant to make you think about your own answer."),
+        opportunity_rate: c.opportunity_rate,
+        horizon_years: A("horizon_years", "Analysis horizon (plug-in battery service life)", 10, "years", TAGS.DEFAULT_SOURCED,
+          S("Modeling choice: 10-yr consumer power-station horizon", null,
+            "A stated planning life, not a warranty citation — plug-in units typically warrant 2–5 yr; LFP cell cycle life supports ~10 at one cycle/day.", WHAT_MODELING_CHOICE),
+          "How many years of value the comparison counts — a stated ~10-year service life for a consumer power station cycled daily. Shorter than the installed battery's 13-year horizon because the hardware is cheaper and the daily TOU cycling works it harder. The Case-2 break-even scales directly with this: ~$901/kWh at 10 years, ~$1,172 at 13."),
+      };
+    },
+    run: (a) => computePluginBattery({
+      annualUsageKwh: a.annual_usage_kwh.value, onPeakShare: a.on_peak_share.value,
+      residualCoverage: a.residual_coverage.value, installedCostPerKwh: a.installed_cost_per_kwh.value,
+      cyclesPerYear: a.cycles_per_year.value,
+      enrollmentDiscountPerKwh: a.enrollment_discount_per_kwh.value,
+      residualPenaltyPerKwh: a.residual_penalty_per_kwh.value,
+      valuePerUsableKwhYr: a.value_per_usable_kwh_yr.value, federalItcPct: a.federal_itc_pct.value,
+      resilienceValuePerYear: a.resilience_value_per_year.value,
       horizonYears: a.horizon_years.value, opportunityRate: a.opportunity_rate.value,
     }),
   },
@@ -389,6 +562,11 @@ function comboRun(pvKey) {
       federalItcPct: a.battery_federal_itc_pct.value, annualBillSavings: a.battery_annual_bill_savings.value,
       resilienceValuePerYear: a.battery_resilience_value_per_year.value,
       horizonYears: a.battery_horizon_years.value, opportunityRate: a.opportunity_rate.value,
+      annualDegradation: a.battery_annual_degradation.value, touEnrolled: !!a.battery_tou_enrolled.value,
+      annualUsageKwh: a.battery_annual_usage_kwh.value, onPeakShare: a.battery_on_peak_share.value,
+      residualCoverage: a.battery_residual_coverage.value,
+      enrollmentDiscountPerKwh: a.battery_enrollment_discount_per_kwh.value,
+      residualPenaltyPerKwh: a.battery_residual_penalty_per_kwh.value,
     });
     return computeCombo(pvKey, pvR, btR, a.battery_pv_interaction_value_per_year.value);
   };
@@ -420,21 +598,43 @@ function verifyAll() {
   if (!(close(b.annualSavings, 388.8) && close(b.capital.simplePaybackYears, 1500 / 388.8, 1e-6))) return "balcony";
   const r = computeRooftop({ capacityKw: 5.5, specificYield: 1200, installedCostPerW: 2.95, federalItcPct: 0, creditValuePerKwh: 0.27, annualUsageKwh: 6600, offsetCapFraction: 1.0, horizonYears: 25, opportunityRate: 0.07, escalation: 0, degradation: 0 });
   if (!(close(r.annualSavings, 1782) && close(r.upfrontCost, 16225) && close(r.capital.simplePaybackYears, 16225 / 1782, 1e-6))) return "rooftop";
-  const bt = computeBattery({ usableKwh: 13.5, installedCostPerKwh: 998, federalItcPct: 0, annualBillSavings: 0, resilienceValuePerYear: 200, horizonYears: 10, opportunityRate: 0.07 });
-  if (!(close(bt.upfrontCost, 13473) && close(bt.annualSavings, 200) && bt.capital.npv < 0)) return "battery";
+  // battery worked example (tests/test_battery.py): 13-yr service life, 3%/yr fade, TOU off.
+  const bt = computeBattery({ usableKwh: 13.5, installedCostPerKwh: 998, federalItcPct: 0, annualBillSavings: 0, resilienceValuePerYear: 200, horizonYears: 13, opportunityRate: 0.07, annualDegradation: 0.03, touEnrolled: false });
+  if (!(close(bt.upfrontCost, 13473) && close(bt.annualSavings, 200) && bt.capital.npv < 0
+        && close(bt.capital.yearly[12].savings, 200 * Math.pow(0.97, 12)))) return "battery";
+  // TOU mode Case 3 (6,600 kWh, 25% on-peak, 70% coverage): arb = 383.592 - 181.84617 = 201.74583.
+  const btTou = computeBattery({ usableKwh: 13.5, installedCostPerKwh: 998, federalItcPct: 0, annualBillSavings: 0, resilienceValuePerYear: 200, horizonYears: 13, opportunityRate: 0.07, annualDegradation: 0.03, touEnrolled: true, annualUsageKwh: 6600, onPeakShare: 0.25, residualCoverage: 0.7, enrollmentDiscountPerKwh: 0.058120, residualPenaltyPerKwh: 0.367366 });
+  if (!(btTou.tou.case === 3 && close(btTou.touArbitrage, 201.74583, 1e-5)
+        && close(btTou.annualSavings, 401.74583, 1e-5))) return "battery";
 
-  // battery+rooftop worked example (tests/test_combo.py): flat streams -> exact additivity.
-  const br = computeCombo("rooftop", r, bt, 0);
+  // plugin-battery worked example (tests/test_plugin_battery.py): defaults are Case 3 (rescue).
+  const pbArgs = { annualUsageKwh: 6600, onPeakShare: 0.25, residualCoverage: 0.7, installedCostPerKwh: 600, cyclesPerYear: 250, enrollmentDiscountPerKwh: 0.058120, residualPenaltyPerKwh: 0.367366, valuePerUsableKwhYr: 90.13, federalItcPct: 0, resilienceValuePerYear: 200, horizonYears: 10, opportunityRate: 0.07 };
+  const pb = computePluginBattery(pbArgs);
+  if (!(pb.case === 3 && close(pb.usableKwhNeeded, 4.62) && close(pb.upfrontCost, 2772)
+        && close(pb.annualSavings, 401.74583, 1e-5)
+        && close(pb.breakEvenCostPerKwh, 201.74583 * 10 / 4.62, 1e-4))) return "plugin-battery";
+  // Case 2 (10% on-peak): incremental arb 462 x 0.367366; break-even = 90.13 x 10 = $901.3/kWh.
+  const pb2 = computePluginBattery({ ...pbArgs, onPeakShare: 0.10 });
+  if (!(pb2.case === 2 && close(pb2.tou.arbitrage, 169.723092, 1e-5)
+        && close(pb2.breakEvenCostPerKwh, 901.3, 1e-6))) return "plugin-battery";
+  // The brief's Case-3 depth-table anchor: 10,000 kWh, 16% on-peak, full coverage -> 6.4 kWh
+  // needed, break-even $908.125/kWh.
+  const pb3 = computePluginBattery({ ...pbArgs, annualUsageKwh: 10000, onPeakShare: 0.16, residualCoverage: 1.0 });
+  if (!(close(pb3.usableKwhNeeded, 6.4) && close(pb3.breakEvenCostPerKwh, 908.125, 1e-3))) return "plugin-battery";
+
+  // battery+rooftop worked example (tests/test_combo.py): flat battery stream -> exact additivity.
+  const btFlat = computeBattery({ usableKwh: 13.5, installedCostPerKwh: 998, federalItcPct: 0, annualBillSavings: 0, resilienceValuePerYear: 200, horizonYears: 13, opportunityRate: 0.07, annualDegradation: 0, touEnrolled: false });
+  const br = computeCombo("rooftop", r, btFlat, 0);
   if (!(close(br.upfrontCost, 29698) && close(br.annualSavings, 1982)
         && close(br.capital.simplePaybackYears, 29698 / 1982, 1e-6)
-        && close(br.capital.npv, r.capital.npv + bt.capital.npv, 1e-6))) return "battery+rooftop";
-  // horizon honesty with LIVE escalation/degradation: year 11 = PV-only cashflow.
+        && close(br.capital.npv, r.capital.npv + btFlat.capital.npv, 1e-6))) return "battery+rooftop";
+  // horizon honesty with LIVE escalation/degradation: year 14 = PV-only cashflow (battery ends at 13).
   const rLive = computeRooftop({ capacityKw: 5.5, specificYield: 1200, installedCostPerW: 2.95, federalItcPct: 0, creditValuePerKwh: 0.27, annualUsageKwh: 6600, offsetCapFraction: 1.0, horizonYears: 25, opportunityRate: 0.07, escalation: 0.03, degradation: 0.005 });
   const brLive = computeCombo("rooftop", rLive, bt, 0);
-  if (!close(brLive.capital.yearly[10].savings, rLive.capital.yearly[10].savings, 1e-6)) return "battery+rooftop";
+  if (!close(brLive.capital.yearly[13].savings, rLive.capital.yearly[13].savings, 1e-6)) return "battery+rooftop";
 
   // battery+balcony worked example: 1500 + 13473 upfront; 388.8 + 200 year-1.
-  const bb = computeCombo("balcony", b, bt, 0);
+  const bb = computeCombo("balcony", b, btFlat, 0);
   if (!(close(bb.upfrontCost, 14973) && close(bb.annualSavings, 588.8)
         && close(bb.capital.simplePaybackYears, 14973 / 588.8, 1e-6))) return "battery+balcony";
   return null;
@@ -447,8 +647,8 @@ const num = (x) => x.toLocaleString("en-US", { maximumFractionDigits: 0 });
 function tagClass(tag) { return tag === TAGS.UNSOURCED ? "tag tag-unsourced" : tag === TAGS.USER_PROVIDED ? "tag tag-user" : "tag tag-sourced"; }
 
 // R4 toggle state machine. Valid states: community | battery | rooftop | balcony |
-// battery+rooftop | battery+balcony. Community is exclusive; rooftop+balcony is not offered;
-// deselecting down to zero re-selects community.
+// plugin-battery | battery+rooftop | battery+balcony. Community and plugin-battery stand alone;
+// rooftop+balcony is not offered; deselecting down to zero re-selects community.
 let activeParts = new Set(["community"]);
 let currentOption = "community";
 let assumptions = OPTIONS.community.defaults();
@@ -486,6 +686,7 @@ function activeDicts() {
 
 function stateKey() {
   if (activeParts.has("community")) return "community";
+  if (activeParts.has("plugin-battery")) return "plugin-battery";
   const hasBattery = activeParts.has("battery");
   if (hasBattery && activeParts.has("rooftop")) return "battery+rooftop";
   if (hasBattery && activeParts.has("balcony")) return "battery+balcony";
@@ -493,13 +694,14 @@ function stateKey() {
 }
 
 function toggleOption(part) {
-  if (part === "community") {
-    activeParts = new Set(["community"]);
+  if (part === "community" || part === "plugin-battery") {
+    activeParts = new Set([part]);                   // both stand alone (no pairings offered)
   } else if (activeParts.has(part)) {
     activeParts.delete(part);
     if (activeParts.size === 0) activeParts = new Set(["community"]); // deselect-to-zero -> default
   } else {
     activeParts.delete("community");                 // capital options clear community
+    activeParts.delete("plugin-battery");            // ...and the standalone plug-in battery
     if (part === "rooftop") activeParts.delete("balcony");   // rooftop+balcony not offered
     if (part === "balcony") activeParts.delete("rooftop");
     activeParts.add(part);
@@ -710,23 +912,29 @@ function hideNotice() { document.getElementById("notice").classList.remove("show
 // and (b) always for comparison questions, which the one-option service can't express.
 // Extracted inputs are applied and surfaced in the notice, never silently dropped
 // (docs/solutions: extracted inputs must be applied or surfaced).
-const ALL_OPTION_KEYS = ["community", "balcony", "rooftop", "battery", "battery+rooftop", "battery+balcony"];
+const ALL_OPTION_KEYS = ["community", "balcony", "rooftop", "battery", "plugin-battery", "battery+rooftop", "battery+balcony"];
 
 function parseQuestionLocally(q) {
   const s = (q || "").toLowerCase();
 
-  // Which options are named, in the order the question names them.
+  // Which options are named, in the order the question names them. "Plug-in battery" (or DIY
+  // battery / power station / TOU battery) is its OWN option — it must be claimed first and
+  // blanked out, or the balcony probe ("plug-in") and battery probe ("batter") would both
+  // misread it. Blanking with spaces keeps every later match index meaningful.
   const found = [];
-  const probe = (key, re) => { const i = s.search(re); if (i !== -1) found.push({ key, i }); };
-  probe("community", /\bcommunity\b/);
-  probe("balcony", /balcony|plug[\s-]?in/);
-  probe("rooftop", /\broof/);
-  probe("battery", /batter|powerwall|\bstorage\b/);
+  const pluginBatteryRe = /plug[\s-]?in\s+(?:der\s+|diy\s+)?batter\w*|diy\s+batter\w*|power\s*station\w*|tou\s+batter\w*/;
+  const probe = (key, re, str) => { const i = str.search(re); if (i !== -1) found.push({ key, i }); };
+  probe("plugin-battery", pluginBatteryRe, s);
+  const s2 = s.replace(new RegExp(pluginBatteryRe.source, "g"), (m) => " ".repeat(m.length));
+  probe("community", /\bcommunity\b/, s2);
+  probe("balcony", /balcony|plug[\s-]?in/, s2);
+  probe("rooftop", /\broof/, s2);
+  probe("battery", /batter|powerwall|\bstorage\b/, s2);
   found.sort((a, b) => a.i - b.i);
   const parts = found.map((f) => f.key);
 
   const compareWord = /compar|\bversus\b|\bvs\b|side[\s-]by[\s-]side/.test(s);
-  const compareAll = compareWord && /\ball\b|\bevery\b|\bsix\b/.test(s);
+  const compareAll = compareWord && /\ball\b|\bevery\b|\bseven\b/.test(s);
 
   // Usage: "550 kWh a month" -> annualized; unit-less small numbers read as monthly.
   let annualUsage = null;
@@ -881,7 +1089,7 @@ function renderAgentPayload(payload) {
     "Answered by the calculator agent — " + OPTIONS[currentOption].describe(assumptions, readCtx()) + "." + note);
 }
 
-// Set the six-state machine to `key` without recomputing (the agent payload carries the data).
+// Set the seven-state machine to `key` without recomputing (the agent payload carries the data).
 function selectOptionSilently(key) {
   exitCompare();
   activeParts = new Set(key === "community" ? ["community"] : key.split("+"));
@@ -1095,12 +1303,30 @@ function ledgerHtml(r, a, optionKey) {
   return html + `</div>`;
 }
 
+// Spinner increment for an assumption's number input. `step="any"` made the arrows move by 1,
+// which is meaningless on a 0.005 degradation rate and a rounding error on a $1,200 kit. A click
+// should be a nudge at the scale the number lives at: whole years, a percentage point on a
+// fraction, ten dollars on a dollar figure, otherwise ~1% of the value snapped to 0.01/0.1/1/10.
+// Unit alone can't decide it — "$/kWh" is both 0.27 (a retail rate) and 998 (installed battery
+// cost) — so magnitude breaks the tie.
+function stepFor(a) {
+  const u = (a.unit || "").toLowerCase();
+  const v = Math.abs(Number(a.value)) || 0;
+  if (u === "years") return 1;
+  if (u === "fraction") return v > 0 && v < 0.02 ? 0.001 : 0.01;   // 0.5%/yr degradation needs finer
+  if (u === "$" || u === "$/yr") return 10;                        // incl. defaults of 0, where magnitude says nothing
+  if (v >= 100) return 10;
+  if (v >= 10) return 1;
+  if (v >= 1) return 0.1;
+  return 0.01;
+}
+
 // One editable assumption row. `where` decides which dict an edit lands in: {opt} = that option
 // only; {shared:true} = every option on screen that carries the key.
 function assumptionRowHtml(key, a, where) {
   const target = where.shared ? ` data-shared="1"` : ` data-opt="${where.opt}"`;
   let html = `<div class="assumption"><label>${a.label}</label>`;
-  html += `<div class="arow"><input type="number" step="any" min="0" data-key="${key}"${target} value="${a.value}"> <span class="unit">${a.unit}</span> <span class="${tagClass(a.tag)}">${a.tag}</span></div>`;
+  html += `<div class="arow"><input type="number" step="${stepFor(a)}" min="0" data-key="${key}"${target} value="${a.value}"> <span class="unit">${a.unit}</span> <span class="${tagClass(a.tag)}">${a.tag}</span></div>`;
   if (!a.source && a.tag === TAGS.UNSOURCED) {
     html += `<div class="src warn">no source yet — don't treat this number as established fact</div>`;
   }
@@ -1194,7 +1420,7 @@ function initPage() {
     btn.addEventListener("click", () => toggleOption(btn.getAttribute("data-part")));
   });
 
-  // The compare picker is built from the registry, so all six states are reachable WITHOUT the
+  // The compare picker is built from the registry, so all seven states are reachable WITHOUT the
   // question box — including the two combos, which the single-option toggles can only reach as
   // a pairing. This is the click-only answer to "compare community solar to balcony solar".
   const cmpHost = document.getElementById("compare-toggles");

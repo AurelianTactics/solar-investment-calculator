@@ -31,7 +31,8 @@ from assumptions import default_assumptions  # noqa: E402
 
 MODEL = "claude-opus-4-8"
 
-OPTION_KEYS = ("community", "balcony", "rooftop", "battery", "battery+rooftop", "battery+balcony")
+OPTION_KEYS = ("community", "balcony", "rooftop", "battery", "plugin-battery",
+               "battery+rooftop", "battery+balcony")
 
 # R5: the missing input that would most tighten each option's estimate.
 FOLLOWUP = {
@@ -39,6 +40,8 @@ FOLLOWUP = {
     "balcony": "the share of the kit's output you'd self-consume in real time",
     "rooftop": "your real annual kWh usage and a competing installer quote ($/W)",
     "battery": "what backup power through an outage is worth to you per year",
+    "plugin-battery": "your on-peak share (weekday 5-9 p.m. fraction of your usage, from your "
+                      "utility's hourly download) — it decides which TOU case you're in",
     "battery+rooftop": "your annual kWh usage and a real installer quote ($/W)",
     "battery+balcony": "your daytime self-consumption share and an electrician quote",
 }
@@ -48,7 +51,8 @@ class Extraction(BaseModel):
     """What the routing call must produce — options picked, numbers extracted, or a refusal."""
 
     option: Literal[
-        "community", "balcony", "rooftop", "battery", "battery+rooftop", "battery+balcony"
+        "community", "balcony", "rooftop", "battery", "plugin-battery",
+        "battery+rooftop", "battery+balcony"
     ] = Field(description="Which solar option (or battery+PV pairing) the question is about.")
     inputs: dict[str, float] = Field(
         default_factory=dict,
@@ -67,7 +71,8 @@ class Extraction(BaseModel):
 EXTRACT_PROMPT = """You route questions for a Maine residential solar savings calculator.
 Pick the option the question is about and pull out any numbers the asker stated.
 Options: community (subscription, zero capital), balcony (plug-in kit), rooftop (owned panels),
-battery (home storage), battery+rooftop, battery+balcony (pairings).
+battery (installed home storage), plugin-battery (a plug-in / DIY battery arbitraging the
+optional time-of-use rate), battery+rooftop, battery+balcony (pairings).
 Do NOT compute anything — the calculator does the math. If the question is not about Maine
 residential solar savings, set unanswerable=true.
 

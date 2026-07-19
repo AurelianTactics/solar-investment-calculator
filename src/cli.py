@@ -58,10 +58,25 @@ CAPITAL_OPTIONS = {
     },
     "battery": {
         "label": "Home Battery Storage (Maine)",
-        # capital first so battery_assumptions() can override horizon_years (10 vs the 25-yr PV default)
+        # capital first so battery_assumptions() can override horizon_years (13 vs the 25-yr PV default)
         "assumption_builders": ("capital_assumptions", "battery_assumptions"),
         "shown": [
             "usable_kwh", "installed_cost_per_kwh", "federal_itc_pct", "annual_bill_savings",
+            "tou_enrolled", "annual_usage_kwh", "on_peak_share", "residual_coverage",
+            "enrollment_discount_per_kwh", "residual_penalty_per_kwh",
+            "resilience_value_per_year", "annual_degradation", "warranty_years",
+            "opportunity_rate", "horizon_years",
+        ],
+    },
+    "plugin-battery": {
+        "label": "Plug-In / DIY Battery (Maine)",
+        "module": "plugin_battery",
+        # capital first so plugin_battery_assumptions() can override horizon_years (10-yr life)
+        "assumption_builders": ("capital_assumptions", "plugin_battery_assumptions"),
+        "shown": [
+            "annual_usage_kwh", "on_peak_share", "residual_coverage", "cycles_per_year",
+            "enrollment_discount_per_kwh", "residual_penalty_per_kwh",
+            "value_per_usable_kwh_yr", "installed_cost_per_kwh", "federal_itc_pct",
             "resilience_value_per_year", "opportunity_rate", "horizon_years",
         ],
     },
@@ -75,8 +90,12 @@ CAPITAL_OPTIONS = {
             "capacity_kw", "specific_yield_kwh_per_kw", "installed_cost_per_w", "federal_itc_pct",
             "credit_value_per_kwh", "annual_usage_kwh", "offset_cap_fraction",
             "battery_usable_kwh", "battery_installed_cost_per_kwh", "battery_federal_itc_pct",
-            "battery_annual_bill_savings", "battery_resilience_value_per_year",
-            "battery_horizon_years", "battery_pv_interaction_value_per_year",
+            "battery_annual_bill_savings", "battery_tou_enrolled", "battery_annual_usage_kwh",
+            "battery_on_peak_share", "battery_residual_coverage",
+            "battery_enrollment_discount_per_kwh", "battery_residual_penalty_per_kwh",
+            "battery_resilience_value_per_year", "battery_annual_degradation",
+            "battery_warranty_years", "battery_horizon_years",
+            "battery_pv_interaction_value_per_year",
             "opportunity_rate", "electricity_escalation", "panel_degradation", "horizon_years",
         ],
     },
@@ -88,8 +107,12 @@ CAPITAL_OPTIONS = {
             "capacity_kw", "specific_yield_kwh_per_kw", "self_consumption_fraction",
             "volumetric_rate_per_kwh", "kit_cost", "electrician_cost",
             "battery_usable_kwh", "battery_installed_cost_per_kwh", "battery_federal_itc_pct",
-            "battery_annual_bill_savings", "battery_resilience_value_per_year",
-            "battery_horizon_years", "battery_pv_interaction_value_per_year",
+            "battery_annual_bill_savings", "battery_tou_enrolled", "battery_annual_usage_kwh",
+            "battery_on_peak_share", "battery_residual_coverage",
+            "battery_enrollment_discount_per_kwh", "battery_residual_penalty_per_kwh",
+            "battery_resilience_value_per_year", "battery_annual_degradation",
+            "battery_warranty_years", "battery_horizon_years",
+            "battery_pv_interaction_value_per_year",
             "opportunity_rate", "electricity_escalation", "panel_degradation", "horizon_years",
         ],
     },
@@ -249,7 +272,8 @@ def render_capital_json(option_key, a, result, shown) -> str:
 #   --set option:key=value     -> that option's ledger only (rooftop:capacity_kw=8)
 # A shared --set that matches no compared option is an error, not a silent no-op.
 
-ALL_OPTION_KEYS = ["community", "balcony", "rooftop", "battery", "battery+rooftop", "battery+balcony"]
+ALL_OPTION_KEYS = ["community", "balcony", "rooftop", "battery", "plugin-battery",
+                   "battery+rooftop", "battery+balcony"]
 
 
 def parse_compare_keys(raw: str) -> list[str]:

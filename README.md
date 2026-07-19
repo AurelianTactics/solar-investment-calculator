@@ -2,9 +2,9 @@
 
 Turn a Maine homeowner's plain question — *"What savings would I get with community solar when my
 bill is $150 a month?"* — into a trustworthy, fact-checkable estimate, with **every number shown as
-a labeled, editable, sourced assumption**, never a black box. Six options are modeled: community
-solar, balcony/plug-in, rooftop, battery, battery+rooftop, and battery+balcony. Why this exists:
-[`STRATEGY.md`](STRATEGY.md).
+a labeled, editable, sourced assumption**, never a black box. Seven options are modeled: community
+solar, balcony/plug-in, rooftop, battery, plug-in/DIY battery (TOU arbitrage), battery+rooftop,
+and battery+balcony. Why this exists: [`STRATEGY.md`](STRATEGY.md).
 
 ## Run the website
 
@@ -30,6 +30,6 @@ The CLI is stdlib-only Python 3 — no setup:
 python src/cli.py --bill 150
 ```
 
-Everything else — all six options, overriding any assumption, `--json` for agents, the test
+Everything else — all seven options, overriding any assumption, `--json` for agents, the test
 suite, and how to *verify* the numbers — is in
 [`docs/how-to-use-and-verify.md`](docs/how-to-use-and-verify.md).

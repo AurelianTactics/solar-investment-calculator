@@ -157,10 +157,62 @@ slot is ready. In-horizon battery degradation remains open from the battery opti
 
 ---
 
+## Battery refresh + plug-in DER option (2026-07-19)
+
+**Research pulled:** `../solar-investment-research/wiki/calculator-brief/handoff-2026-07-16.md`,
+the refreshed `battery-answers.md` (last_updated 2026-07-16), and the new
+`plugin-battery-answers.md`.
+
+**What landed.**
+
+1. **Stale-claim fix.** `annual_bill_savings`' note no longer says "No strong residential TOU
+   arbitrage" — one exists (CMP Rate TOU, eff. 2026-07-01), conditional and delivery-only, and
+   now lives behind the off-by-default `tou_enrolled` mode instead of being denied.
+2. **`tou_arbitrage` mode** (`src/tou.py`, shared by battery and plugin-battery): the master
+   equation `U×0.058120 − R×0.367366` with the three-case branch — Case 1 threshold (TOU beats
+   flat iff on-peak share < 0.1582 = discount/penalty), Case 2 gravy (baseline TOU-alone; battery
+   earns only shifted×penalty, never the enrollment discount — the double-count the handoff warns
+   about), Case 3 rescue (baseline flat; net vs. flat, floored at 0). District-aware by editing:
+   the rate assumptions' notes carry the Versant Home Eco values (BHD ≈$0.101 / MPD ≈$0.099 thin
+   spread, near-zero enrollment risk).
+3. **Horizon 10 → 13 + 3%/yr degradation.** `horizon_years` is now the expected LFP service life
+   (13), `warranty_years = 10` kept as a separate, display-only risk-window assumption, and
+   `annual_degradation = 0.03` flows into `capital.compare`. Verdict unchanged (longer horizon
+   adds years of ≈$0); the combo NPV moved from −$2,258 to **−$2,221** (battery+rooftop).
+4. **48E two-path federal credit.** `federal_itc_pct` is reframed as a financing-structure
+   switch: owner-bought = 0 (25D expired); lease/PPA = 48E survives via the installer (Form
+   3468), pass-through % to a Maine homeowner deliberately NOT hardcoded (unsourced).
+5. **NEW option `plugin-battery`** (`src/plugin_battery.py` + `plugin_battery_assumptions()` +
+   `tests/test_plugin_battery.py` + `--option plugin-battery` + web state): three-case model with
+   the battery **sized to the shifted load** (`usable_kwh = coverage×on_peak/250 cycles`), which
+   reproduces the brief's Case-3 depth table exactly ($908/kWh break-even at 16% on-peak → $581
+   at 25% → $363 at 40%; Case-2 break-even ~$901/kWh from the sourced $90.13/usable-kWh/yr).
+   Defaults (6,600 kWh, 25% on-peak, 70% coverage, $600/kWh station): Case 3, 4.62 kWh needed,
+   $2,772 upfront, $201.75/yr arbitrage + $200 resilience, NPV **+$50** — the arbitrage alone
+   does NOT clear a $600/kWh station (break-even $437/kWh ≈ cheap DIY only); the resilience
+   placeholder is what tips it. `installed_cost_per_kwh` and `residual_coverage` ship
+   `unsourced — pending research` (deliberately: they exercise the tag in production, like
+   balcony's `electrician_cost`).
+6. **Web widget.** The plugin-battery page IS the "which TOU case are you in?" widget: shared
+   usage box + editable `on_peak_share`, the case named in the headline context line, threshold +
+   enrollment-only savings + break-even as steps, and the "a plug-in can't cover winter heat"
+   caveat in the Case-3 verdict text.
+
+**What surprised us.** The brief's Case-2 $901/kWh and Case-3 $908-at-16% break-evens rest on
+slightly different algebra (Case 2 nets out the 0.90 round-trip loss via `value_per_usable_kwh_yr`;
+the Case-3 table and master equation don't) — the calculator follows the brief literally and says
+so in the assumption note rather than silently reconciling them.
+
+**What's still open (tracked in the research repo's open-questions).** Plug-in/DIY `$/kWh` and
+realistic winter `residual_coverage` (the two unsourced tags); 48E pass-through %; a defensible
+resilience dollar value; Versant's fixed-charge delta vs. flat needs a clean apples-to-apples calc.
+
+---
+
 ## Status
 
-All six roadmap option states are modeled (community, balcony, rooftop, battery, battery+rooftop,
-battery+balcony), each on the shared assumption model + (for capital options) the capital engine,
-each with a hand-verified worked example in the test suite, a `--option` CLI path, and a mirrored
-`web/app.js` entry in the on-load parity self-check. Every assumption now carries a newcomer-grade
-`explain`, and every sourced default's source carries `what_is_it`.
+All seven roadmap option states are modeled (community, balcony, rooftop, battery, plugin-battery,
+battery+rooftop, battery+balcony), each on the shared assumption model + (for capital options) the
+capital engine, each with a hand-verified worked example in the test suite, a `--option` CLI path,
+and a mirrored `web/app.js` entry in the on-load parity self-check. Every assumption carries a
+newcomer-grade `explain`, and every sourced default's source carries `what_is_it`.

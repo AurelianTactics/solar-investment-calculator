@@ -17,8 +17,8 @@ after any change to `web/` (and any time you want to reproduce a rendering bug).
    python tools/verify_web.py run
    ```
 
-   This drives all six option states (community, balcony, rooftop, battery, battery+rooftop,
-   battery+balcony) in a headless chromium-family browser (Chrome, Chromium, or Edge — discovered
+   This drives all seven option states (community, balcony, rooftop, battery, plugin-battery,
+   battery+rooftop, battery+balcony) in a headless chromium-family browser (Chrome, Chromium, or Edge — discovered
    on any OS), asserts each renders a result **and** that the on-load parity self-check did not
    fire, exercises the agent-fallback path (fetch disabled → notice + form flow), captures a
    screenshot per state under `.verify/screenshots/`, and writes a hashed evidence record to

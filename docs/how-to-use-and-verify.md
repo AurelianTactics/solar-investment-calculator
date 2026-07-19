@@ -13,9 +13,10 @@ python src/cli.py
 python src/cli.py --bill 150
 python src/cli.py --bill 150 --json                 # machine-readable
 
-# Any of the six option states; --set overrides any assumption (re-tags it "user-provided")
+# Any of the seven option states; --set overrides any assumption (re-tags it "user-provided")
 python src/cli.py --option rooftop --set capacity_kw=8
 python src/cli.py --option battery+rooftop          # combos: battery+rooftop, battery+balcony
+python src/cli.py --option plugin-battery           # plug-in/DIY battery on the TOU rate (3 cases)
 
 # Two or more options side by side, over shared inputs
 python src/cli.py --compare community,balcony
@@ -34,9 +35,10 @@ client-side. The sticky result card pins the headline number (with a context lin
 or a caveat when the bill is still the sourced Maine average) while you scroll. "Refine this
 estimate" opens the drawer, which works in one of two modes:
 
-- **One option** — the option toggles (community stands alone; battery pairs with rooftop or the
-  balcony kit), then that option's calculation steps and assumptions ledger.
-- **Compare side by side** — pick any two or more of the six states and each gets a row in the
+- **One option** — the option toggles (community and the plug-in battery stand alone; battery
+  pairs with rooftop or the balcony kit), then that option's calculation steps and assumptions
+  ledger.
+- **Compare side by side** — pick any two or more of the seven states and each gets a row in the
   table. No question box required: comparing community solar to balcony solar is two clicks.
 
 The drawer splits every control by what an edit is allowed to touch. **Shared inputs** (your bill,
@@ -63,8 +65,8 @@ those credits from the provider at a discount — the discount is the savings
 Capital options compute year-1 savings and upfront cost, then the capital engine asks the
 `STRATEGY.md` question: **are you better off buying solar, or investing that cash at the
 opportunity rate?** (NPV > 0 → solar wins.) Combos are stream-wise additive: the battery keeps its
-10-year flat stream, the PV keeps its 25-year escalating/degrading stream, and the verdict comes
-from the summed per-year cashflows.
+13-year stream (3%/yr capacity fade), the PV keeps its 25-year escalating/degrading stream, and the
+verdict comes from the summed per-year cashflows.
 
 Each assumption is tagged `default (sourced)`, `user-provided`, or `unsourced — pending research`,
 carries a plain-English explanation of what it means and what moves it, and sourced defaults cite
@@ -106,7 +108,7 @@ The product **is** the audit trail. Four independent checks back every result:
    JS; if anything diverges, a red banner tells you not to trust the page.
 
 3. **Two-layer browser verification.** "The website works" is observed, never claimed:
-   - *Deterministic loop* — `python tools/verify_web.py run` drives all six option states in a
+   - *Deterministic loop* — `python tools/verify_web.py run` drives all seven option states in a
      headless browser (Chrome/Chromium/Edge, any OS), asserts each renders with parity intact and
      that asking with the service unreachable degrades to the form flow, and writes screenshots +
      a hashed evidence record to `.verify/`.

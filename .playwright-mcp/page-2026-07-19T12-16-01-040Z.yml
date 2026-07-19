@@ -1,0 +1,37 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - paragraph [ref=e5]: Maine · Residential Solar
+    - heading "Solar Options" [level=1] [ref=e6]
+    - paragraph [ref=e7]: Ask a plain question, get a fact-checkable answer. Every number below is a labeled, editable, sourced assumption — never a black box.
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - textbox "Your solar question" [ref=e10]: What savings would I get with community solar when my bill is $150 a month?
+      - button "Ask" [ref=e11] [cursor=pointer]
+    - generic "Sample questions" [ref=e12]:
+      - button "What if I put solar panels on my roof?" [ref=e13] [cursor=pointer]
+      - button "Is a home battery worth it with rooftop solar?" [ref=e14] [cursor=pointer]
+      - button "I rent — what can plug-in balcony solar save me?" [ref=e15] [cursor=pointer]
+      - button "Compare balcony solar to community solar" [ref=e16] [cursor=pointer]
+    - generic [ref=e17]:
+      - strong [ref=e18]: Want a tighter estimate?
+      - generic [ref=e19]: "The most valuable thing you could tell us: your electricity usage in kWh — monthly or annual, it's in your bill's usage history — and who your utility is; it replaces the bill→usage estimate with the real number. For example: “I use 550 kWh a month with CMP — what would community solar save me?”"
+  - generic [ref=e21]:
+    - paragraph [ref=e22]: Community Solar — current estimate
+    - generic [ref=e23]: $248.57/yr saved
+    - generic [ref=e24]:
+      - text: $20.71/mo · 12.3% off ·
+      - strong [ref=e25]: $0 upfront capital
+    - paragraph [ref=e26]: That $168.41/mo bill is the sourced Maine average, not yours — edit it under “Refine this estimate.”
+  - group [ref=e27]:
+    - generic "✎ Refine this estimate — options, every step, every assumption" [ref=e28] [cursor=pointer]
+    - text: + + + +
+  - contentinfo [ref=e29]:
+    - text: Defaults are values sourced from
+    - link "this repo" [ref=e30] [cursor=pointer]:
+      - /url: https://github.com/AurelianTactics/solar-investment-research
+    - text: . Edit any to fit your situation. Anything tagged
+    - emphasis [ref=e31]: unsourced — pending research
+    - text: should not be treated as established fact. Code available
+    - link "here" [ref=e32] [cursor=pointer]:
+      - /url: https://github.com/AurelianTactics/solar-investment-calculator
+    - text: .

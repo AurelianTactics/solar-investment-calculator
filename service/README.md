@@ -42,8 +42,9 @@ $env:ANTHROPIC_API_KEY = "<your key>"        # PowerShell, this session only —
 Smoke test:
 
 ```powershell
-curl.exe -s -X POST http://127.0.0.1:8765/ask -H "Content-Type: application/json" `
-  -d '{"question": "What savings would I get with community solar when my bill is $150 a month?"}'
+Invoke-RestMethod -Uri http://127.0.0.1:8765/ask -Method Post `
+  -ContentType 'application/json' `
+  -Body '{"question": "What savings would I get with community solar when my bill is $150 a month?"}'
 ```
 
 The numbers must match `python src/cli.py --bill 150 --json` exactly — the service imports the
