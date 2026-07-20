@@ -45,7 +45,6 @@
     font-size:clamp(2.1rem, 6vw, 3.2rem); line-height:1.02; letter-spacing:-.015em;
     margin:0; color:var(--ink); }
   h1 em { font-style:italic; color:var(--sun); }
-  .lede { color:var(--ink-soft); font-size:1.02rem; max-width:54ch; margin:14px 0 0; }
   .sun-mark { position:absolute; top:-6px; right:0; width:60px; height:60px; border-radius:50%;
     background:radial-gradient(circle at 50% 45%, var(--sun-soft), var(--sun));
     box-shadow:0 0 0 6px rgba(230,162,60,.16), 0 0 36px rgba(230,162,60,.5); }
@@ -269,6 +268,8 @@
   footer { color:var(--muted); font-size:.82rem; line-height:1.6; margin-top:34px;
     padding-top:18px; border-top:3px double var(--rule-strong); }
   footer a { color:var(--sky); text-underline-offset:2px; }
+  footer .poc { margin:0 0 12px; }
+  footer .poc strong { color:var(--ink-soft); }
   footer em { color:var(--clay); font-style:normal; font-weight:600; }
 </style>
 </head>
@@ -280,8 +281,6 @@
     <div class="sun-mark" aria-hidden="true"></div>
     <p class="kicker">Maine · Residential Solar</p>
     <h1>Solar Options</h1>
-    <p class="lede">Ask a plain question, get a fact-checkable answer. Every number below is a
-      labeled, editable, sourced assumption — never a black box.</p>
   </header>
 
   <div class="card">
@@ -316,7 +315,7 @@
       <div id="single-picker">
         <label>Which option (or pairing)?</label>
         <div class="toggles" role="group" aria-label="Solar options">
-          <button class="toggle" type="button" data-part="community">Community</button>
+          <button class="toggle" type="button" data-part="community">Community solar</button>
           <button class="toggle" type="button" data-part="balcony">Balcony solar</button>
           <button class="toggle" type="button" data-part="rooftop">Rooftop</button>
           <button class="toggle" type="button" data-part="battery">Battery</button>
@@ -364,6 +363,10 @@
   </details>
 
   <footer>
+    <p class="poc"><strong>This is a proof of concept.</strong> It’s a transparency demo, not
+      financial advice and not a quote. Every number is an estimate built from general Maine
+      defaults — including some that are placeholders awaiting research. Get real quotes before
+      spending real money.</p>
     Defaults are values sourced from
     <a href="https://github.com/AurelianTactics/solar-investment-research">this repo</a>.
     Edit any to fit your situation. Anything tagged <em>unsourced — pending research</em> should

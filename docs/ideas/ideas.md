@@ -3,8 +3,8 @@
 * DONE the top two to do items here (link the plan)
     * DONE the click things
     * TEST other one
-* merge into master
-* merge into the plan branch
+* DONE merge into master
+* DONE merge into the plan branch
 * run the plan
 * when done with the plan, backlog and next ideas / future iterations
 
