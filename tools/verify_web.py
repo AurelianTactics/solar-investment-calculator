@@ -99,6 +99,13 @@ def build_driver(index_src: str, state: str) -> str:
     whatever the default question says), so Ask fires first and the state under test is selected
     on a later timer, after the fetch rejection's microtask fallback has rendered. The notice
     stays visible across selection, so both the fallback and the state are asserted from one DOM.
+
+    The shim TYPES its question rather than asking whatever the box already holds. Since the
+    state<->text sync landed, the box's resting text is page-authored, and askQuestion() elides
+    page-authored questions before they reach the network (no LLM, by design) — so asking the
+    resting text would answer without ever touching fetch, and this loop would stop proving the
+    no-service fallback works. A typed question is what a visitor's question actually is: not
+    equal to the generated sentence, therefore routed to the service, therefore falling back.
     The probe's data-err carries any window error or shim throw, so the headless DOM dump alone
     tells us whether the page ran cleanly.
     """
@@ -110,6 +117,8 @@ def build_driver(index_src: str, state: str) -> str:
         "window.addEventListener('error',function(e){window.__err=String((e&&(e.message||e.error))||'error');});\n"
         "window.addEventListener('load',function(){\n"
         "  try{ window.fetch=function(){ return Promise.reject(new TypeError('verifier: service disabled')); };\n"
+        "       document.getElementById('question').value="
+        "         'What savings would I get with community solar when my bill is $150 a month?';\n"
         "       document.getElementById('ask').click(); }catch(e){ window.__err='ask:'+(e&&e.message||e); }\n"
         "  setTimeout(function(){\n"
         "    try{ %s }catch(e){ window.__err='select:'+(e&&e.message||e); }\n"

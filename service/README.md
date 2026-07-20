@@ -66,11 +66,40 @@ back to the form flow. Configure:
 
 Reset the budget by deleting the ledger file (a deliberate act, on purpose).
 
+## Extraction cache — the model is the last resort, not the first
+
+Three layers keep questions away from the model, and only the third costs anything:
+
+1. **Elision** (`web/app.js`) — the page rewrites the question box from its own state, so a
+   question the page *wrote* is answered by recomputing directly. No network at all.
+2. **Local parsing** (`parseQuestionLocally`) — comparison questions and many others are read by
+   the page's own keyword/number parser.
+3. **This cache** (`service/cache.py`) — for questions the page didn't write: normalized text →
+   the serialized `Extraction`. A repeat of any question, from any visitor, after any restart,
+   costs nothing. Refusals are cached too, so "what's the weather" buys one call, not one per ask.
+
+Caching routing is safe because an `Extraction` is a pure function of the question text — the
+arithmetic re-runs from `src/` on every request regardless, so a hit can never serve a stale
+*number*, only a stale *routing*. Routing does expire, though: entries are qualified by a version
+tag over the model, the option keys, and the routing prompt, so adding a seventh option or editing
+the prompt invalidates the file instead of routing to yesterday's option set forever.
+
+The ledger fails **closed** (a corrupt ledger must not become free money); the cache fails
+**soft** — missing, corrupt, or stale means *miss*, never an error. A cached question is also
+answered when the spend cap is reached, since serving it spends nothing.
+
+| env var | default | meaning |
+|---|---|---|
+| `SOLAR_AGENT_CACHE_PATH` | `service/.extraction-cache.json` | cache location (gitignored) |
+
+Delete the file to force fresh routing.
+
 ## Error contract (what the frontend keys on)
 
 | condition | response |
 |---|---|
 | routable question | CLI-shaped payload + `agent` + `followup` fields |
+| repeat of any earlier question | same payload shape, recomputed fresh, **zero** LLM calls |
 | off-topic question | `{"error": "unanswerable"}` |
 | cap reached | `{"error": "cap_exceeded", "detail": ...}` |
 | LLM timeout/failure | `{"error": "llm_error: ..."}` |

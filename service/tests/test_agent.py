@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 import solar_calc  # noqa: E402
-from agent import Agent, Extraction  # noqa: E402
+from agent import Agent, Extraction, cache_version  # noqa: E402
+from cache import ExtractionCache  # noqa: E402
 from spend import SpendLedger  # noqa: E402
 
 SERVICE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -29,8 +30,11 @@ def stub(option, inputs=None, unanswerable=False):
 
 
 def make_agent(tmp_path, extractor, cap=5.0):
+    # Both files are per-test: a shared cache would leak one test's routing into another's, and
+    # neither belongs in the developer's real service/ directory.
     ledger = SpendLedger(path=str(tmp_path / "spend.json"), cap_usd=cap)
-    return Agent(extractor=extractor, ledger=ledger)
+    cache = ExtractionCache(path=str(tmp_path / "cache.json"), version=cache_version())
+    return Agent(extractor=extractor, ledger=ledger, cache=cache)
 
 
 class TestRouting:

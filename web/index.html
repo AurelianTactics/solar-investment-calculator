@@ -84,6 +84,15 @@
     transition:border-color .12s ease, color .12s ease;
   }
   button.sample:hover { border-color:var(--sun); color:var(--sun); transform:none; box-shadow:none; }
+  /* The scenario link (R8b) sits with the samples but is an action, not a question — dashed so
+     it reads as "do something with this view" rather than "ask me". */
+  button.linkbtn {
+    background:transparent; color:var(--muted); border:1px dashed var(--rule-strong);
+    border-radius:999px; padding:7px 14px; cursor:pointer; margin:0;
+    font:500 .82rem "Public Sans", sans-serif;
+    transition:border-color .12s ease, color .12s ease;
+  }
+  button.linkbtn:hover { border-color:var(--sky); color:var(--sky); transform:none; box-shadow:none; }
 
   /* ---- notices ---- */
   #notice { display:none; background:var(--sky-bg); color:var(--sky);
@@ -285,7 +294,11 @@
 
   <div class="card">
     <div class="askrow">
-      <textarea id="question" rows="2" aria-label="Your solar question">What savings would I get with community solar when my bill is $150 a month?</textarea>
+      <!-- The landing text is the sentence questionFromState() generates for the default state,
+           at the sourced $168.41 Maine average the page actually computes with. It used to say
+           $150 while the headline said $168.41 — the box-vs-headline contradiction the state↔text
+           sync exists to kill. Keep the two in step if either changes. -->
+      <textarea id="question" rows="2" aria-label="Your solar question">Estimate community solar on a $168.41 monthly bill — zero upfront capital, you keep the discount on the credits.</textarea>
       <button id="ask" type="button">Ask</button>
     </div>
     <div class="samples" aria-label="Sample questions">
@@ -294,6 +307,9 @@
       <button class="sample" type="button">I rent — what can plug-in balcony solar save me?</button>
       <button class="sample" type="button">Is a plug-in battery worth it on CMP's time-of-use rate?</button>
       <button class="sample" type="button">Compare balcony solar to community solar</button>
+      <!-- NOT .sample — that class means "put this text in the box and ask it". -->
+      <button class="linkbtn" id="copy-link" type="button"
+              title="Copy a link that reopens this exact scenario">🔗 Copy link to this scenario</button>
     </div>
     <div class="followup" id="tip"><strong>Want a tighter estimate?</strong> <span id="tip-body">The
       most valuable thing you could tell us: your electricity usage in kWh — monthly or annual,

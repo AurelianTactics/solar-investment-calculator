@@ -28,6 +28,9 @@ pnpm-debug.log*
 # Agent-service spend ledger (accumulated LLM cost; local state, never committed)
 service/.spend.json
 
+# Agent-service extraction cache (question -> routing; regenerates itself, local state)
+service/.extraction-cache.json
+
 # Logs / cache / coverage
 *.log
 .cache/

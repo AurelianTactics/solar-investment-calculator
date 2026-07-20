@@ -10,12 +10,18 @@ agent-path numbers come from the source of truth by construction and the payload
 identical to ``python src/cli.py ... --json``. Extracted values are applied via
 ``with_user_value()`` so they arrive tagged ``user-provided`` (extraction is not a source).
 
+Before the extract step runs, the question is looked up in an ``ExtractionCache`` (see
+``cache.py``): routing is a pure function of the question text, so a repeat of any question —
+from any visitor — costs nothing. Refusals are cached too, or "what's the weather" would buy a
+call every time it is asked.
+
 Testable seam: ``Agent(extractor=...)`` — tests inject a fake extractor; only the default
 extractor touches the network (and records its token usage in the spend ledger).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -77,6 +83,18 @@ Do NOT compute anything — the calculator does the math. If the question is not
 residential solar savings, set unanswerable=true.
 
 Question: {question}"""
+
+
+def cache_version() -> str:
+    """What a cached routing decision is only valid FOR.
+
+    A cached ``Extraction`` stays correct exactly as long as the thing that produced it does. All
+    three of those inputs are here: change the model, add an option key, or edit the routing
+    prompt, and every existing entry becomes a miss rather than silently routing to yesterday's
+    option set.
+    """
+    material = "|".join((MODEL, ",".join(OPTION_KEYS), EXTRACT_PROMPT))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
 class AgentState(TypedDict, total=False):
@@ -167,12 +185,18 @@ def compute_payload(extraction: Extraction) -> tuple[dict, dict]:
 class Agent:
     """route + extract + compute, wired as a (small) LangGraph StateGraph."""
 
-    def __init__(self, extractor: Optional[Callable[[str], Extraction]] = None, ledger=None):
+    def __init__(self, extractor: Optional[Callable[[str], Extraction]] = None, ledger=None,
+                 cache=None):
         if ledger is None:
             from spend import SpendLedger
 
             ledger = SpendLedger.from_env()
+        if cache is None:
+            from cache import ExtractionCache
+
+            cache = ExtractionCache.from_env(cache_version())
         self.ledger = ledger
+        self.cache = cache
         self.extractor = extractor  # None -> built lazily so tests never need a key
         self._graph = self._build_graph()
 
@@ -180,12 +204,23 @@ class Agent:
         from langgraph.graph import END, START, StateGraph
 
         def extract_node(state: AgentState) -> AgentState:
+            question = state["question"]
+            cached = self.cache.get(question)
+            if cached is not None:
+                try:
+                    return {"extraction": Extraction(**cached)}
+                except Exception:
+                    pass  # an entry written by an older schema is a miss, never an error
             if self.extractor is None:
                 self.extractor = build_default_extractor(self.ledger)
             try:
-                return {"extraction": self.extractor(state["question"])}
+                extraction = self.extractor(question)
             except Exception as e:  # timeout, parse failure, API error -> structured fallback
                 return {"error": f"llm_error: {e}"}
+            # Cache AFTER a successful parse, refusals included: an unanswerable question asked
+            # twice should cost one call, not two.
+            self.cache.put(question, extraction.model_dump())
+            return {"extraction": extraction}
 
         def compute_node(state: AgentState) -> AgentState:
             ex = state.get("extraction")
@@ -219,7 +254,9 @@ class Agent:
 
     def answer(self, question: str) -> dict:
         """Returns the CLI-shaped payload, or {"error": ...} the frontend can fall back on."""
-        if self.ledger.over_cap:
+        # The cap exists to bound SPEND, and a cached question spends nothing — so it is still
+        # answered over the cap. The check stays before the graph for everything else.
+        if self.ledger.over_cap and self.cache.get(question) is None:
             return {"error": "cap_exceeded",
                     "detail": f"agent spend cap reached (${self.ledger.cap_usd:.2f})"}
         state = self._graph.invoke({"question": question})

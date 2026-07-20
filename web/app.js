@@ -13,7 +13,19 @@
 // box is `#question`; the fallback notice is `#notice.show` and its text always contains "without
 // the agent". The headline renders into the sticky `#result` card; steps + assumptions render
 // into `#detail` inside the "Refine this estimate" drawer; the tighter-estimate tip renders into
-// `#tip-body` under the Ask box.
+// `#tip-body` under the Ask box. `#copy-link` (optional — wired only if present) copies the
+// scenario URL.
+//
+// STATE <-> TEXT is a closed loop, and both directions are load-bearing:
+//   state -> text   `syncQuestionBox()` rewrites #question from the current scenario on every
+//                   render, so the box can never contradict the headline; `syncUrl()` mirrors the
+//                   same state into the query string, which is the scenario's save file.
+//   text -> state   `askQuestion()` elides any question the page itself authored (it still holds
+//                   the state that produced the text, so there is nothing to interpret), then
+//                   falls to the local parser, then to the service.
+// A page-authored #question is therefore NOT a neutral starting value: anything that asks the
+// box's resting text gets an instant local recompute rather than a service round-trip. The
+// deterministic verifier types its own question for exactly this reason.
 //
 // Refining vs. comparing is ONE drawer, split by what an edit is allowed to touch:
 //   * shared inputs (#bill, #annual-usage, #shared-assumptions) describe YOUR situation and drive
@@ -644,6 +656,11 @@ function verifyAll() {
 const money = (x) => "$" + x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const money0 = (x) => "$" + x.toLocaleString("en-US", { maximumFractionDigits: 0 });
 const num = (x) => x.toLocaleString("en-US", { maximumFractionDigits: 0 });
+// ONE rule for turning a fraction into a percent, used by every surface that prints one. Rounding
+// rules that differ per surface are how a page ends up saying "4.5%" and "5% discount rate" about
+// the same number on the same screen. Rounds to a tenth and drops a trailing ".0"; the ×1000-then-
+// ÷10 order matters, because 0.07 × 100 is 7.000000000000001.
+const pct = (frac) => String(Math.round(frac * 1000) / 10);
 function tagClass(tag) { return tag === TAGS.UNSOURCED ? "tag tag-unsourced" : tag === TAGS.USER_PROVIDED ? "tag tag-user" : "tag tag-sourced"; }
 
 // R4 toggle state machine. Valid states: community | battery | rooftop | balcony |
@@ -899,6 +916,200 @@ function readCtx() {
   return { bill, annualUsage: usageRaw ? parseFloat(usageRaw) : null };
 }
 
+// --- state <-> text sync (R4/R5) and the scenario URL (R8b) -----------------
+// The page could always DESCRIBE its state — `describe()` has driven the context line all along —
+// but never wrote that description BACK into the question box, so the box went stale the moment
+// you refined: it still said "$150" while the headline computed something else. These functions
+// close the loop in the missing direction, reusing `describe()` rather than inventing a second
+// phrasing system that could drift from it.
+//
+// `lastGeneratedQuestion` is the EXACT string the page last authored. The box is page-owned only
+// while it still equals that string; the moment the user types, the two diverge and the page
+// stops overwriting (R8) — an unasked draft is never destroyed. Storing the string rather than a
+// boolean "the page wrote the box" flag is load-bearing for the elision in askQuestion(): a
+// boolean would also be true right after a sample-button click, and the elision would then answer
+// the current view instead of the sample's question.
+let lastGeneratedQuestion = null;
+let questionSynced = false;    // false only before the first paint, where R4 rewrites regardless
+let takeoverQuestion = false;  // an answer just landed: its sentence takes the box back over
+
+// Assumption labels carry a full explanatory tail ("Opportunity cost — return if you invested
+// the cash instead"); prose wants the head of it.
+const shortLabel = (a) => (a.label || "").split(" — ")[0].split(" (")[0].trim();
+
+function fmtAssumptionValue(a) {
+  const u = a.unit || "";
+  if (u === "$") return money0(a.value);
+  if (u.startsWith("$/")) return "$" + a.value + u.slice(1);
+  if (u === "fraction") return pct(a.value) + "%";
+  return `${a.value} ${u}`.trim();
+}
+
+// The keys the tag machinery already knows the user moved off a sourced default — the same signal
+// renderCompare marks rows with (✎), surfaced in prose instead. In compare mode, edits from every
+// compared option, deduped by key.
+function editedOnScreen() {
+  const dicts = inCompare() ? compareKeys.map((k) => compareAssumptions[k]) : [assumptions];
+  const seen = new Map();
+  for (const d of dicts) {
+    for (const [k, a] of Object.entries(d || {})) {
+      if (a && a.tag === TAGS.USER_PROVIDED && !seen.has(k)) seen.set(k, a);
+    }
+  }
+  return [...seen.values()];
+}
+
+// R5, and the reason it can coexist with "the page says too much": SILENT AT REST. With nothing
+// edited this renders nothing at all — it costs pixels only when it has news, which is exactly
+// when a customized estimate might otherwise be mistaken for a default one.
+function editedNote() {
+  const edits = editedOnScreen();
+  if (!edits.length) return "";
+  return ` ${edits.length} assumption${edits.length > 1 ? "s" : ""} edited from sourced defaults: `
+    + edits.map((a) => shortLabel(a).toLowerCase()).join(", ") + ".";
+}
+
+// R4: the sentence the box should hold for the state on screen right now.
+function questionFromState() {
+  const ctx = readCtx();
+  let s;
+  if (inCompare()) {
+    s = "Compare " + compareKeys.map((k) => OPTIONS[k].label).join(" vs ");
+    if (anyNeedsBill()) s += ` on a ${money(ctx.bill)} monthly bill`;
+  } else {
+    s = "Estimate " + OPTIONS[currentOption].describe(assumptions, ctx);
+  }
+  // Community derives usage from the bill instead of carrying annual_usage_kwh as an assumption,
+  // so a usage the user typed would go unsaid there; where an option DOES carry it, the edited
+  // clause below already names it and repeating it would say the same number twice.
+  const carriesUsage = inCompare()
+    ? compareKeys.some((k) => compareAssumptions[k][USAGE_KEY])
+    : !!assumptions[USAGE_KEY];
+  if (usageEdited && ctx.annualUsage && !carriesUsage) {
+    s += `, using ${num(ctx.annualUsage)} kWh a year`;
+  }
+  const edits = editedOnScreen();
+  if (edits.length) {
+    s += ", with " + edits.map((a) => `${shortLabel(a).toLowerCase()} at ${fmtAssumptionValue(a)}`).join("; ");
+  }
+  return s + ".";
+}
+
+// The generated sentence grows with every assumption you edit, and a fixed two-row box clips it —
+// hiding the tail of the very state the box exists to show. Grow to fit, then scroll at a height
+// where the box would start crowding out the answer.
+function autosizeQuestion(qbox) {
+  qbox.style.height = "auto";
+  qbox.style.height = Math.min(qbox.scrollHeight, 150) + "px";
+}
+
+function syncQuestionBox() {
+  const qbox = document.getElementById("question");
+  if (!qbox) return;
+  const cur = qbox.value.trim();
+  const pageOwns = !questionSynced || takeoverQuestion || cur === "" || cur === lastGeneratedQuestion;
+  const next = questionFromState();
+  lastGeneratedQuestion = next;   // tracked even when the user owns the box, so the R6 elision
+  takeoverQuestion = false;       // test below always compares against the CURRENT state's sentence
+  if (!pageOwns) return;
+  questionSynced = true;
+  if (qbox.value !== next) qbox.value = next;
+  autosizeQuestion(qbox);
+}
+
+// R8b: the URL is the save file — no database, no accounts. Only what the user actually changed
+// is encoded (the same TAGS.USER_PROVIDED set R5 reads), so links stay short and adding an
+// assumption later can't invalidate an old one.
+function stateToQuery() {
+  const p = new URLSearchParams();
+  if (inCompare()) p.set("c", compareKeys.join(","));
+  else p.set("o", currentOption);
+  if (billEdited) {
+    const raw = document.getElementById("bill").value;
+    if (raw !== "") p.set("bill", raw);
+  }
+  const usageRaw = document.getElementById("annual-usage").value;
+  if (usageEdited && usageRaw !== "") p.set("usage", usageRaw);
+  // annual_usage_kwh is carried by `usage` above — its one editor is the shared box, so writing
+  // it twice would let a link disagree with itself.
+  const push = (prefix, d) => {
+    for (const [k, a] of Object.entries(d || {})) {
+      if (a && a.tag === TAGS.USER_PROVIDED && k !== USAGE_KEY) p.set(prefix + k, String(a.value));
+    }
+  };
+  if (inCompare()) for (const k of compareKeys) push(`a.${k}.`, compareAssumptions[k]);
+  else push("a.", assumptions);
+  return p.toString();
+}
+
+function scenarioUrl() {
+  const base = location.href.split("#")[0].split("?")[0];
+  const q = stateToQuery();
+  return q ? base + "?" + q : base;
+}
+
+function syncUrl() {
+  // replaceState, not pushState — a scenario that grows the back stack on every keystroke is a
+  // trap. Chrome forbids replaceState on file://, which is exactly how the verifier drives this
+  // page, so a failure here must be silent: the URL is a convenience, never a dependency.
+  try { history.replaceState(null, "", scenarioUrl()); } catch (e) { /* file:// — ignore */ }
+}
+
+// Read the scenario back. Unknown or malformed keys are ignored rather than fatal (the same
+// fail-soft discipline as the caches): a link from a future version still opens.
+function hydrateFromUrl() {
+  let p;
+  try { p = new URLSearchParams(location.search); } catch (e) { return false; }
+  if (![...p.keys()].length) return false;
+
+  const numParam = (name) => {
+    const raw = p.get(name);
+    if (raw === null || raw === "") return null;
+    const v = parseFloat(raw);
+    return isNaN(v) || v < 0 ? null : v;
+  };
+
+  const bill = numParam("bill");
+  if (bill !== null) {
+    document.getElementById("bill").value = bill;
+    billEdited = true;
+    const pill = document.getElementById("bill-tag");
+    pill.textContent = TAGS.USER_PROVIDED; pill.className = "tag tag-user";
+  }
+  const usage = numParam("usage");
+  if (usage !== null) {
+    document.getElementById("annual-usage").value = usage;
+    usageEdited = true;
+  }
+
+  // The option/compare selection rebuilds assumption dicts from defaults, so it must happen
+  // BEFORE the per-assumption overrides are laid on top.
+  const cmp = (p.get("c") || "").split(",").filter((k) => OPTIONS[k]);
+  const one = p.get("o");
+  if (cmp.length >= 2) selectCompare(cmp);
+  else if (cmp.length === 1) selectOption(cmp[0]);
+  else if (one && OPTIONS[one]) selectOption(one);
+  else if (bill === null && usage === null) return false;   // nothing recognizable in the URL
+  else selectOption(currentOption);
+
+  for (const [name, raw] of p.entries()) {
+    if (!name.startsWith("a.")) continue;
+    const parts = name.slice(2).split(".");
+    const key = parts.pop();
+    const optKey = parts.join(".");
+    const v = parseFloat(raw);
+    if (isNaN(v)) continue;
+    const dicts = optKey
+      ? (compareAssumptions && compareAssumptions[optKey] ? [compareAssumptions[optKey]] : [])
+      : [assumptions];
+    for (const d of dicts) {
+      if (d[key]) d[key] = { ...d[key], value: v, tag: TAGS.USER_PROVIDED, source: null };
+    }
+  }
+  afterStateChange();   // re-render with the overrides in force (and rewrite the box from them)
+  return true;
+}
+
 function showNotice(msg) {
   const n = document.getElementById("notice");
   n.textContent = msg;
@@ -981,6 +1192,9 @@ function applyUsageAssumption(dict, usage) {
 
 // Apply a locally parsed question: set the shared inputs, switch the view, say what was understood.
 function answerLocally(parsed, reason) {
+  // The question was answered, so the answer's own generated sentence takes the box back over —
+  // the box must describe what is on screen, not the phrasing that got us here.
+  takeoverQuestion = true;
   const understood = [];
   if (parsed.bill != null && !isNaN(parsed.bill)) {
     document.getElementById("bill").value = parsed.bill;
@@ -1023,6 +1237,17 @@ function smartFallback(parsed, reasonPrefix) {
 // flow) on ANY failure — the page is fully functional with zero backend (R7).
 async function askQuestion(q) {
   hideNotice();
+  // R6 — Layer 1: the page WROTE this question, so it still holds the state that produced it.
+  // There is nothing to interpret and nothing to route: recompute directly. No LLM, no network,
+  // no latency, no spend. The match is against the exact generated string rather than a "the page
+  // wrote the box" flag, so a sample-button question (which the page also writes) never lands
+  // here and silently re-answers the current view instead of what it asked.
+  if (lastGeneratedQuestion !== null && (q || "").trim() === lastGeneratedQuestion) {
+    takeoverQuestion = true;
+    recompute();
+    return showNotice("Answered instantly without the agent: this page wrote that question from " +
+      "your current scenario, so it already holds the state and recomputed directly — no model call.");
+  }
   const parsed = parseQuestionLocally(q);
   // Comparison is a client-side live view: the agent service maps a question to ONE option,
   // so compare-intent questions skip the service and are answered by the verified mirror.
@@ -1063,6 +1288,7 @@ async function askQuestion(q) {
 
 // Adapt the service's CLI-shaped payload to the mirror renderer: same renderer, different data.
 function renderAgentPayload(payload) {
+  takeoverQuestion = true;   // answered: the box now describes the answer's scenario
   selectOptionSilently(payload.option);
   assumptions = payload.assumptions; // same record shape: label/value/unit/tag/source/explain
   const res = payload.result;
@@ -1173,7 +1399,11 @@ function renderCompare(rows, ctx) {
     }
   }
   html += `</tbody></table></div>`;
-  html += `<p class="context cmp-note">Savings are year 1. NPV converts each option’s future savings to today’s dollars at the shared opportunity rate (default 7%) and subtracts the upfront cost; community solar puts no capital at stake, so payback/NPV don’t apply. Every row recomputes live from the shared bill (${money(ctx.bill)}/mo) and usage — <strong>click a row</strong> to jump to its own steps and assumptions.</p>`;
+  // Quote the rate actually in force, not the default: with R5 naming "opportunity cost" as an
+  // edited assumption in this very sentence, a hardcoded "7%" would contradict itself.
+  const sharedRate = compareKeys.map((k) => compareAssumptions[k].opportunity_rate).find(Boolean);
+  const sharedRatePct = sharedRate ? pct(sharedRate.value) : "7";
+  html += `<p class="context cmp-note">Savings are year 1. NPV converts each option’s future savings to today’s dollars at the shared opportunity rate (${sharedRatePct}%) and subtracts the upfront cost; community solar puts no capital at stake, so payback/NPV don’t apply. Every row recomputes live from the shared bill (${money(ctx.bill)}/mo) and usage — <strong>click a row</strong> to jump to its own steps and assumptions.${editedNote()}</p>`;
   html += `<button type="button" class="cmp-exit" id="cmp-exit">✕ Exit comparison — focus on ${OPTIONS[currentOption].label}</button>`;
   const el = document.getElementById("result");
   el.innerHTML = html;
@@ -1184,6 +1414,8 @@ function renderCompare(rows, ctx) {
     "your electricity usage in kWh — it tightens every option in this comparison at once.";
 
   renderCompareDetail(rows);
+  syncQuestionBox();
+  syncUrl();
 }
 
 // Every compared option gets its OWN ledger section — the whole point of a comparison is that you
@@ -1228,17 +1460,18 @@ function render(r, followupText, contextText) {
     const cap = r.capital;
     const verdict = cap.npv > 0 ? "solar wins" : "the market wins";
     const pb = cap.simplePaybackYears == null ? "never" : cap.simplePaybackYears.toFixed(1) + " years";
-    const ratePct = (cap.opportunityRate * 100).toFixed(0);
+    const ratePct = pct(cap.opportunityRate);
     head += `<div class="big">${money(r.annualSavings)}<span>/yr (year 1)</span></div>`;
     head += `<div class="sub">${money(r.upfrontCost)} upfront · <strong>payback ${pb}</strong> · NPV: ${money0(cap.npv)} (${ratePct}% discount rate) <button type="button" class="npv-what" aria-expanded="false">what’s NPV?</button></div>`;
     head += `<div class="npv-def" hidden>Net present value: all ${cap.horizonYears} years of projected savings converted into today’s dollars at the ${ratePct}% discount rate, minus the upfront cost. Above $0 means buying solar beats investing the same cash at ${ratePct}% — here, ${verdict}.</div>`;
   }
   // One small context line: the agent's answer note, or the default-bill caveat. The context
   // may quote user/agent text, so it is set via textContent, never innerHTML.
-  const context = contextText
+  // R5 appends which assumptions you moved off their sourced defaults — silent when none are.
+  const context = (contextText
     || (currentOption === "community" && !billEdited
         ? `That ${money(ctx.bill)}/mo bill is the sourced Maine average, not yours — edit it under “Refine this estimate.”`
-        : `For ${opt.describe(assumptions, ctx)}.`);
+        : `For ${opt.describe(assumptions, ctx)}.`)) + editedNote();
   head += `<p class="context"></p></div>`;
   document.getElementById("result").innerHTML = head;
   document.querySelector("#result .context").textContent = context;
@@ -1256,6 +1489,9 @@ function render(r, followupText, contextText) {
       + (opt.example ? ` For example: <span class="eg">“${opt.example}”</span>` : "");
 
   renderDetail(r);
+  // Last, so the box and the URL describe what was just rendered rather than what preceded it.
+  syncQuestionBox();
+  syncUrl();
 }
 
 // Keys a ledger must NOT render, because a shared input above is already their one editor.
@@ -1278,7 +1514,7 @@ function ledgerHtml(r, a, optionKey) {
   }
   if (optionKey !== "community") {
     const cap = r.capital;
-    html += `<li><div class="step-label">Capital verdict (vs. ${(cap.opportunityRate * 100).toFixed(0)}% opportunity cost)</div><code>NPV = −upfront + Σ savings_t ÷ (1+r)^t</code><div class="step-val">= ${money0(cap.npv)} <span class="unit">${cap.npv > 0 ? "solar wins" : "market wins"}, ${cap.horizonYears}-yr horizon</span></div></li>`;
+    html += `<li><div class="step-label">Capital verdict (vs. ${pct(cap.opportunityRate)}% opportunity cost)</div><code>NPV = −upfront + Σ savings_t ÷ (1+r)^t</code><div class="step-val">= ${money0(cap.npv)} <span class="unit">${cap.npv > 0 ? "solar wins" : "market wins"}, ${cap.horizonYears}-yr horizon</span></div></li>`;
   }
   html += `</ol>`;
 
@@ -1408,6 +1644,8 @@ function initPage() {
   const qbox = document.getElementById("question");
   document.getElementById("ask").addEventListener("click", () => askQuestion(qbox.value));
   qbox.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(qbox.value); } });
+  qbox.addEventListener("input", () => autosizeQuestion(qbox));   // a typed draft grows too
+  autosizeQuestion(qbox);
   document.querySelectorAll("button.sample").forEach((btn) => {
     btn.addEventListener("click", () => { qbox.value = btn.textContent.trim(); askQuestion(qbox.value); });
   });
@@ -1464,6 +1702,24 @@ function initPage() {
     recompute();
   });
 
-  // R2: with no user input, the default render is community at the sourced average Maine bill.
-  selectOption("community");
+  // R8b: hand the user the save file. Copying is built from state rather than location.href
+  // because file:// refuses replaceState — the link must be right even where the address bar
+  // can't be.
+  const copyBtn = document.getElementById("copy-link");
+  if (copyBtn) copyBtn.addEventListener("click", async () => {
+    const url = scenarioUrl();
+    try {
+      await navigator.clipboard.writeText(url);
+      showNotice("Link copied — it reopens this exact scenario (option, bill, usage, and every " +
+        "assumption you edited).");
+    } catch (e) {
+      // Clipboard access is denied on file:// and without a user-gesture in some browsers; the
+      // URL is still useful, so show it rather than failing.
+      showNotice("Copy this link to reopen this exact scenario: " + url);
+    }
+  });
+
+  // A shared scenario wins over the default landing state; otherwise R2 stands — with no user
+  // input the default render is community at the sourced average Maine bill.
+  if (!hydrateFromUrl()) selectOption("community");
 }

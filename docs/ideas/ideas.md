@@ -6,7 +6,15 @@
 * DONE merge into master
 * DONE merge into the plan branch
 * run the plan
+    * TEST W1
+    * TEST W2
+    * W3 (different UI)
+    * look and feel
+        * TOU parts
+    * W4 (Railway)
+    * W5 MCP
 * when done with the plan, backlog and next ideas / future iterations
+    * organize, what next steps would be, fun stuff to di etc
 
 # Fixes
 
