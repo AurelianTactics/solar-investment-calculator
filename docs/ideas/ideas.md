@@ -27,6 +27,8 @@
 * minimal feedback stuff plan
     * plan written, review
     * docs/plans/2026-07-20-001-feat-minimal-user-feedback.md
+    * work started on this
+    * review
 * when done with the plan, backlog and next ideas / future iterations
     * organize, what next steps would be, fun stuff to di etc
 

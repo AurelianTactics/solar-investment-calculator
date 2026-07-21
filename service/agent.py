@@ -15,6 +15,15 @@ Before the extract step runs, the question is looked up in an ``ExtractionCache`
 from any visitor — costs nothing. Refusals are cached too, or "what's the weather" would buy a
 call every time it is asked.
 
+The same call also labels the question's ``intent`` (calculate / feedback / out_of_scope) for a
+handful of extra output tokens. **That label is recorded and never routed on.** It turns the
+question box that already exists into a labeled feedback channel with no new UI — but if the
+classifier called a real question "feedback" and the page stopped calculating, we would have broken
+the product to serve telemetry. Log-only in v1; read a month of classifications before letting it
+influence anything. When the model is unreachable or the cap has tripped there is no label at all,
+and the caller records the raw text with ``intent: "unknown"`` — the text is the asset, the label
+is derivable offline whenever we want it.
+
 Testable seam: ``Agent(extractor=...)`` — tests inject a fake extractor; only the default
 extractor touches the network (and records its token usage in the spend ledger).
 """
@@ -70,6 +79,12 @@ class Extraction(BaseModel):
         default=False,
         description="True if the question is not about Maine residential solar savings.",
     )
+    intent: Literal["calculate", "feedback", "out_of_scope"] = Field(
+        default="calculate",
+        description="What the person is doing: 'calculate' = asking for an estimate; "
+        "'feedback' = telling us something is wrong, missing, or confusing; "
+        "'out_of_scope' = asking for something this calculator does not model.",
+    )
     note: str = Field(default="", description="One short sentence on how you routed it.")
 
 
@@ -80,6 +95,11 @@ battery (installed home storage), plugin-battery (a plug-in / DIY battery arbitr
 optional time-of-use rate), battery+rooftop, battery+balcony (pairings).
 Do NOT compute anything — the calculator does the math. If the question is not about Maine
 residential solar savings, set unanswerable=true.
+
+Also label what the person is doing, in `intent`: "calculate" if they want an estimate,
+"feedback" if they are telling us something is wrong, stale, missing or confusing, "out_of_scope"
+if they want something this calculator does not model (heat pumps, EVs, another state). The label
+is recorded and never changes the answer, so when in doubt use "calculate".
 
 Question: {question}"""
 
@@ -101,6 +121,7 @@ class AgentState(TypedDict, total=False):
     extraction: Optional[Extraction]
     payload: Optional[dict]
     error: Optional[str]
+    cached: bool
 
 
 def build_default_extractor(ledger) -> Callable[[str], Extraction]:
@@ -168,7 +189,7 @@ class Agent:
             cached = self.cache.get(question)
             if cached is not None:
                 try:
-                    return {"extraction": Extraction(**cached)}
+                    return {"extraction": Extraction(**cached), "cached": True}
                 except Exception:
                     pass  # an entry written by an older schema is a miss, never an error
             if self.extractor is None:
@@ -198,6 +219,9 @@ class Agent:
                 "ignored_inputs": ignored,  # extracted but unmappable — never silently dropped
                 "option": ex.option,
                 "note": ex.note,
+                # Recorded by the caller, never acted on here — see the module docstring.
+                "intent": ex.intent,
+                "cached": bool(state.get("cached")),
             }
             payload["followup"] = (
                 "The input that would most tighten this estimate: " + FOLLOWUP[ex.option] + "."

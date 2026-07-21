@@ -17,6 +17,9 @@
 #                               container's ephemeral disk resets the day's spend on every deploy
 #   SOLAR_AGENT_CACHE_PATH      /data/.extraction-cache.json  (same volume; a warm cache is what
 #                               keeps repeat questions free)
+#   SOLAR_FEEDBACK_PATH         /data/.feedback.jsonl  (same volume; the instrumentation log. On
+#                               the ephemeral disk it silently collects nothing that survives a
+#                               deploy, which is indistinguishable from nobody visiting)
 # RAILWAY_PUBLIC_DOMAIN is injected by Railway and is picked up automatically for the MCP host
 # allow-list.
 

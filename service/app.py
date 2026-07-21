@@ -3,7 +3,8 @@
     GET  /            the calculator page (web/), served same-origin
     POST /ask         {"question": "..."} -> the CLI --json payload shape (+ agent/followup
                       fields), or {"error": "cap_exceeded" | "unanswerable" | "llm_error: ..."}
-    GET  /health      liveness + today's spend against the daily cap
+    POST /events      {"events": [...]} -> client events + feedback, appended to the log
+    GET  /health      liveness + today's spend against the daily cap + the log's size
     /mcp              MCP over streamable HTTP (no LLM, no key, no spend — see mcp_server.py)
 
 Application-level conditions (cap reached, off-topic question) return HTTP 200 with an
@@ -31,12 +32,22 @@ An in-process bucket is proportionate for a POC on a single instance; it resets 
 does not coordinate across replicas. Don't scale this horizontally without moving both the bucket
 and the ledger somewhere with atomic increments.
 
+**Instrumentation.** A middleware appends one line per request to ``feedback.py``'s log — the only
+telemetry that needs no client cooperation, so it covers visitors who bounce in two seconds and
+``/mcp`` clients that run no JavaScript at all. ``/ask`` and ``/events`` add richer lines of their
+own on top. ``/events`` is a public unauthenticated *write* endpoint, which is a different threat
+than ``/ask``: per-IP rate limiting bounds request rate, and disk is rate integrated over time, so
+the body-size and per-batch caps here are what actually bound what one client can write. The log
+itself yields before the spend ledger does (see ``feedback.py``) — telemetry must never be what
+stops the agent answering.
+
 Run locally (uv venv outside the repo — see service/README.md):
     $env:USERPROFILE\\claude_code_repos\\my-uv-envs\\solar-calc\\Scripts\\python.exe service/app.py
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -60,6 +71,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 from agent import Agent  # noqa: E402
+from feedback import FeedbackLog  # noqa: E402
 import mcp_server as mcp_server_module  # noqa: E402
 from mcp_server import mcp as mcp_server  # noqa: E402
 
@@ -73,6 +85,19 @@ RATE_LIMIT_PER_MINUTE = int(os.environ.get("SOLAR_AGENT_RATE_LIMIT_PER_MINUTE", 
 RATE_LIMIT_WINDOW_S = 60.0
 _RATE_LIMIT_MAX_IPS = 10_000        # bounded so the limiter can't itself become the memory leak
 
+# /events gets its own bucket rather than sharing /ask's. A page that flushes a few event batches
+# while you tune assumptions must not consume the allowance for asking questions — one surface
+# throttling the other would be an instrumentation change breaking the product.
+EVENTS_RATE_LIMIT_PER_MINUTE = int(os.environ.get("SOLAR_EVENTS_RATE_LIMIT_PER_MINUTE", "30"))
+# Generous for a batch of eight small events, hostile to bulk. Enforced on the RAW body, before
+# parsing, so a large payload is refused rather than parsed and then measured.
+MAX_EVENT_BYTES = int(os.environ.get("SOLAR_EVENTS_MAX_BYTES", "2048"))
+MAX_EVENTS_PER_BATCH = int(os.environ.get("SOLAR_EVENTS_MAX_PER_BATCH", "20"))
+# Free text is TRUNCATED where a batch is REJECTED: rejecting a batch costs an attacker nothing,
+# while rejecting someone's paragraph throws away the feedback we went out of our way to ask for.
+MAX_TEXT_CHARS = 1000
+MAX_FIELD_CHARS = 200
+
 
 app = FastAPI(title="Maine Solar Ledger")
 # The page is served same-origin on the deploy, but the verifier and the dev flow drive it from
@@ -81,6 +106,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 _agent: Agent | None = None
 _buckets: "OrderedDict[str, list[float]]" = OrderedDict()
+log = FeedbackLog.from_env()
 
 
 def get_agent() -> Agent:
@@ -103,17 +129,20 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def rate_limited(ip: str, now: float | None = None) -> bool:
-    """Sliding-window counter per IP. True means this request should be refused."""
+def rate_limited(ip: str, now: float | None = None, scope: str = "ask",
+                 limit: int | None = None) -> bool:
+    """Sliding-window counter per IP, per endpoint scope. True means refuse this request."""
     now = time.time() if now is None else now
-    hits = [t for t in _buckets.get(ip, []) if now - t < RATE_LIMIT_WINDOW_S]
-    if len(hits) >= RATE_LIMIT_PER_MINUTE:
-        _buckets[ip] = hits
-        _buckets.move_to_end(ip)
+    limit = RATE_LIMIT_PER_MINUTE if limit is None else limit
+    bucket = f"{scope}:{ip}"
+    hits = [t for t in _buckets.get(bucket, []) if now - t < RATE_LIMIT_WINDOW_S]
+    if len(hits) >= limit:
+        _buckets[bucket] = hits
+        _buckets.move_to_end(bucket)
         return True
     hits.append(now)
-    _buckets[ip] = hits
-    _buckets.move_to_end(ip)
+    _buckets[bucket] = hits
+    _buckets.move_to_end(bucket)
     while len(_buckets) > _RATE_LIMIT_MAX_IPS:
         _buckets.popitem(last=False)
     return False
@@ -137,14 +166,93 @@ def ask(body: Ask, request: Request) -> dict:
         return {"error": "rate_limited",
                 "detail": f"more than {RATE_LIMIT_PER_MINUTE} questions in a minute from your "
                           f"address. Wait a moment and ask again."}
-    return get_agent().answer(question)
+    started = time.time()
+    result = get_agent().answer(question)
+    # The question text is the asset and is stored verbatim; the intent label is a bonus that the
+    # LLM being down (or the cap being tripped) must not cost us — hence "unknown" rather than a
+    # dropped line. Every question that reaches the agent is recorded, answered or not.
+    meta = result.get("agent") or {}
+    log.append("ask",
+               ip=client_ip(request),
+               question=question,
+               intent=meta.get("intent", "unknown"),
+               option=meta.get("option"),
+               cached=meta.get("cached"),
+               error=result.get("error"),
+               ms=int((time.time() - started) * 1000))
+    return result
+
+
+def _clean_event(raw: object) -> dict | None:
+    """One client event, reduced to fields we know how to store. None means drop it.
+
+    An allow-list rather than a passthrough: ``/events`` is public and unauthenticated, so without
+    this the log's line size would be whatever a stranger decided to POST, and the body cap alone
+    would be the only thing standing between us and arbitrary JSON in the record we most want to
+    stay readable.
+    """
+    if not isinstance(raw, dict):
+        return None
+    kind = str(raw.get("kind", ""))[:40]
+    if kind not in ("option_selected", "assumption_edited", "compared", "feedback"):
+        return None
+    out: dict = {}
+    for name in ("option", "key", "tag", "options", "verdict"):
+        value = raw.get(name)
+        if value is None:
+            continue
+        if isinstance(value, list):
+            out[name] = [str(v)[:MAX_FIELD_CHARS] for v in value[:10]]
+        else:
+            out[name] = str(value)[:MAX_FIELD_CHARS]
+    for name in ("from", "to"):
+        value = raw.get(name)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            out[name] = value
+    for name in ("text", "scenario_url"):
+        value = raw.get(name)
+        if value:
+            out[name] = str(value)[:MAX_TEXT_CHARS]
+    return {"kind": kind, **out}
+
+
+@app.post("/events")
+async def events(request: Request) -> dict:
+    """Client events and feedback. Fire-and-forget: the page never depends on this answering."""
+    ip = client_ip(request)
+    if rate_limited(ip, scope="events", limit=EVENTS_RATE_LIMIT_PER_MINUTE):
+        return {"ok": False, "error": "rate_limited"}
+    raw = await request.body()
+    if len(raw) > MAX_EVENT_BYTES:
+        return {"ok": False, "error": "too_large"}
+    try:
+        body = json.loads(raw or b"{}")
+        incoming = body.get("events") if isinstance(body, dict) else None
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        return {"ok": False, "error": "bad_json"}
+    if not isinstance(incoming, list):
+        return {"ok": False, "error": "bad_json"}
+    if len(incoming) > MAX_EVENTS_PER_BATCH:
+        return {"ok": False, "error": "too_many_events"}
+
+    referrer = request.headers.get("referer", "")[:MAX_FIELD_CHARS]
+    user_agent = request.headers.get("user-agent", "")[:MAX_FIELD_CHARS]
+    written = 0
+    for item in incoming:
+        event = _clean_event(item)
+        if event is None:
+            continue
+        kind = event.pop("kind")
+        if log.append(kind, ip=ip, ua=user_agent, referrer=referrer, **event):
+            written += 1
+    return {"ok": True, "written": written}
 
 
 @app.get("/health")
 def health() -> dict:
     ledger = get_agent().ledger
     return {"ok": True, "spend_usd_today": round(ledger.total_usd, 4), "cap_usd_per_day":
-            ledger.cap_usd, "day": ledger.today()}
+            ledger.cap_usd, "day": ledger.today(), "log": log.status()}
 
 
 # MCP over streamable HTTP (see mcp_server.http_handler for why the raw handler rather than
@@ -168,6 +276,38 @@ async def _normalize_mcp_path(request: Request, call_next):
     if request.scope["path"] == "/mcp":
         request.scope["path"] = "/mcp/"
     return await call_next(request)
+
+
+@app.middleware("http")
+async def _log_request(request: Request, call_next):
+    """One log line per request — the cheapest instrumentation there is, and the only kind that
+    needs no client cooperation.
+
+    It cannot be blocked, it catches visitors who leave in two seconds, and it covers ``/mcp``,
+    which runs no JavaScript at all and is otherwise invisible.
+
+    The path recorded is the one that was *routed*, not the one sent: this runs inside
+    ``_normalize_mcp_path``, so a bare ``/mcp`` is logged as ``/mcp/``. That's the useful end of
+    the trade — all MCP traffic lands under one path rather than splitting by which form the
+    connector happened to use.
+
+    A failure to log must never become a failure to answer, so the append is best-effort and the
+    response is returned whatever happens to it.
+    """
+    started = time.time()
+    response = await call_next(request)
+    try:
+        log.append("request",
+                   method=request.method,
+                   path=request.scope.get("path", ""),
+                   status=response.status_code,
+                   ms=int((time.time() - started) * 1000),
+                   ip=client_ip(request),
+                   ua=request.headers.get("user-agent", "")[:MAX_FIELD_CHARS],
+                   referrer=request.headers.get("referer", "")[:MAX_FIELD_CHARS])
+    except Exception:
+        pass
+    return response
 
 # The page LAST: a catch-all mount at "/" would otherwise shadow the routes above. Same-origin
 # with /ask, which is what lets web/app.js call a relative path on the deploy.

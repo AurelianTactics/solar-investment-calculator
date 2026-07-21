@@ -22,14 +22,8 @@ os.environ.setdefault("SOLAR_MCP_ALLOWED_HOSTS", "testserver")
 import app as app_module  # noqa: E402
 
 
-@pytest.fixture(scope="module")
-def client():
-    """One client for the module — entering the lifespan starts the MCP session manager, and that
-    can only happen once per process (the SDK enforces it, and a deploy only ever does it once)."""
-    from fastapi.testclient import TestClient
-
-    with TestClient(app_module.app) as c:
-        yield c
+# The lifespan-entered ``client`` fixture is session-scoped in conftest.py: starting the MCP
+# session manager can only happen once per process, so it cannot be per-module.
 
 
 @pytest.fixture(autouse=True)

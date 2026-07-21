@@ -80,6 +80,26 @@ page (`/`), the agent endpoint (`/ask`), and the MCP server (`/mcp`). Setup/run/
 - `/mcp` exposes the calculator as MCP tools (`list_options`, `get_assumptions`, `calculate`,
   `compare`) with **no LLM on the path** — no key, no ledger, no cap. Public and unauthenticated by
   decision (nothing to authorize; the reasoning is in `docs/deploy-handoff.md`).
+- `POST /events` takes batched client events and feedback from the page. No LLM, no key — it
+  appends to the log and nothing else.
+
+**Instrumentation** (`service/feedback.py`, 2026-07-21) is one append-only JSONL file —
+`/data/.feedback.jsonl`, `SOLAR_FEEDBACK_PATH` — carrying every `kind`: request lines from a
+middleware, `/ask` questions verbatim with their `intent` label, MCP tool calls, client events,
+and feedback. No database, no dashboard: at ten visitors a month you read the log, you don't
+aggregate it. Three rules that are easy to break by accident:
+
+- **It yields before anything else on the disk does.** It shares one Railway volume with the spend
+  ledger, and `spend.py` fails *closed* — so a byte ceiling and a free-space floor are checked
+  before every append, and `append()` returns False rather than raising, ever. Telemetry must never
+  be what stops `/ask` answering.
+- **It refuses; it never evicts** (unlike `cache.py`). Retention is forever, so evicting would
+  delete the earliest events to make room for whoever is flooding us. `/health` reports size
+  against ceiling.
+- **`intent` is logged and never routed on.** Acting on the label would let a misclassification
+  stop the page calculating — breaking the product to serve telemetry. Same reason nothing
+  auto-edits `assumptions.py` from feedback: that collides head-on with "sourced defaults trace to
+  research", so a complaint about a number becomes a *research question* a human reads.
 
 **`service/tools_core.py` is the single payload builder** — `/ask`, MCP, and the parity tests are
 its three callers. Don't add a second one: a human and an agent asking the same question must not

@@ -32,6 +32,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 import tools_core  # noqa: E402
+from feedback import FeedbackLog  # noqa: E402
+
+_log = FeedbackLog.from_env()
+
+
+def _log_call(tool: str, **args) -> None:
+    """Record one tool call. Agent-native usage is half this project's thesis and, without this,
+    entirely invisible: there is no LLM, no cookie and no page on the MCP path.
+
+    Only the tool name and an argument *summary* — the option keys and which input keys were
+    overridden, not their values. There is no client identity to record here either; the request
+    middleware in ``app.py`` logs the IP and user-agent for the same request a moment earlier, and
+    for MCP the user-agent is genuinely informative (a Claude connector reads differently from a
+    script). Best-effort by construction — ``FeedbackLog.append`` never raises.
+    """
+    _log.append("mcp_tool_call", tool=tool, **args)
 
 INSTRUCTIONS = """Estimate what each residential solar option saves a Maine homeowner, with every
 number traceable. Call list_options to see what can be modeled, get_assumptions(option) to read an
@@ -104,6 +120,7 @@ def list_options() -> list[dict]:
 
     Use the returned ``key`` for the ``option`` argument of the other tools.
     """
+    _log_call("list_options")
     return tools_core.list_options()
 
 
@@ -117,6 +134,7 @@ def get_assumptions(option: str) -> dict:
     it, why it's credible). The keys returned here are exactly the keys ``calculate``'s ``inputs``
     accepts.
     """
+    _log_call("get_assumptions", option=option)
     return tools_core.get_assumptions(option)
 
 
@@ -133,6 +151,7 @@ def calculate(option: str, inputs: dict[str, float] | None = None) -> dict:
     value), the year-by-year cashflow, and every assumption with its source. ``ignored_inputs``
     lists any key that matched no assumption of this option — it is never silently dropped.
     """
+    _log_call("calculate", option=option, input_keys=sorted(inputs or {}))
     payload, ignored = tools_core.calculate(option, inputs or {})
     payload["ignored_inputs"] = ignored
     return payload
@@ -150,6 +169,7 @@ def compare(options: list[str], inputs: dict[str, float] | None = None) -> dict:
     Community solar stakes no capital, so its payback and NPV come back null — not applicable,
     not zero.
     """
+    _log_call("compare", options=list(options or []), input_keys=sorted(inputs or {}))
     return tools_core.compare(options, inputs or {})
 
 

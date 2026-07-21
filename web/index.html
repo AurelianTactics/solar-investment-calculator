@@ -273,6 +273,38 @@
     font:600 .78rem "Public Sans", sans-serif; letter-spacing:.06em; text-transform:uppercase; }
   #reset:hover { border-color:var(--ink); color:var(--ink); }
 
+  /* ---- the feedback row: one line, no hue, no card ----
+     Density is the constraint and the hue budget is spent (NPV sign + provenance tags), so this
+     borrows the .sample/.linkbtn idiom exactly rather than introducing an accent. It reads as a
+     continuation of the statement above it, which is the point — feedback is part of the ledger,
+     not a widget bolted beside it. */
+  .fbrow { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:10px;
+    padding:9px 12px; border:1px solid var(--rule); border-top:none;
+    font-size:.82rem; color:var(--muted); }
+  .fb-q { margin-right:2px; }
+  .fb-thumb { background:none; color:var(--ink-soft); border:1px solid var(--rule-strong);
+    border-radius:0; padding:4px 9px; cursor:pointer; font:400 .8rem "Public Sans", sans-serif; }
+  .fb-thumb:hover { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+  .fb-thumb[aria-pressed="true"] { background:var(--ink); color:var(--paper);
+    border-color:var(--ink); }
+  .fb-thumb:focus-visible { outline:2px solid var(--ink); outline-offset:1px; }
+  .fb-note { flex-basis:100%; display:flex; flex-wrap:wrap; align-items:flex-start; gap:8px;
+    margin-top:4px; }
+  /* `display:flex` on a class beats the UA's `[hidden]{display:none}`, so the note box would sit
+     open on load — putting a form on the landing view and breaking the click-first-text-second
+     rule the whole row is built on. Anything here that starts hidden needs this said explicitly. */
+  .fb-note[hidden], .fb-thanks[hidden] { display:none; }
+  .fb-note label { flex-basis:100%; color:var(--ink-soft); }
+  .fb-note textarea { flex:1 1 320px; min-width:0; padding:7px 9px; border:1px solid var(--rule-strong);
+    border-radius:0; background:#fff; color:var(--ink); resize:vertical;
+    font:400 .85rem/1.5 "Public Sans", sans-serif; }
+  .fb-note textarea:focus { outline:none; border-color:var(--ink); }
+  #fb-send { background:none; color:var(--ink-soft); border:1px solid var(--rule-strong);
+    border-radius:0; padding:7px 14px; cursor:pointer;
+    font:600 .76rem "Public Sans", sans-serif; letter-spacing:.06em; text-transform:uppercase; }
+  #fb-send:hover { border-color:var(--ink); color:var(--ink); }
+  .fb-thanks { color:var(--ink-soft); }
+
   footer { color:var(--muted); font-size:.8rem; line-height:1.6; margin-top:36px; padding-top:16px;
     border-top:2px solid var(--ink); }
   footer a { color:var(--user); }
@@ -332,6 +364,26 @@
   </div>
 
   <div id="result"></div>
+
+  <!-- One ROW under the estimate, not a box and not a page — a feedback page is a product, this
+       is a row. It lives outside #result because render() rewrites that card on every recompute,
+       which would wipe a half-typed note. Click first, text second: nobody types into a box they
+       weren't invited to, and the thumb's real job is to be the visible signal that feedback is
+       wanted here. Judge it on whether text arrives at all, not on the up/down ratio. -->
+  <div class="fbrow" id="feedback-row">
+    <span class="fb-q">Does this estimate match what you know?</span>
+    <button class="fb-thumb" id="fb-up" type="button" aria-pressed="false"
+            title="This looks right">👍 Looks right</button>
+    <button class="fb-thumb" id="fb-down" type="button" aria-pressed="false"
+            title="Something here is off">👎 Something's off</button>
+    <div class="fb-note" id="fb-note" hidden>
+      <label for="fb-text">What didn’t add up? (optional)</label>
+      <textarea id="fb-text" rows="2"
+                placeholder="e.g. installers here quote closer to $3.60/W"></textarea>
+      <button id="fb-send" type="button">Send</button>
+    </div>
+    <span class="fb-thanks" id="fb-thanks" hidden>Thanks — recorded with the scenario above.</span>
+  </div>
 
   <details class="refine" id="refine">
     <summary>Refine this estimate — options, every step, every assumption</summary>
@@ -396,6 +448,14 @@
       financial advice and not a quote. Every number is an estimate built from general Maine
       defaults — including some that are placeholders awaiting research. Get real quotes before
       spending real money.</p>
+    <!-- R8. Two sentences, same register as the disclaimer above it — if we can't state what we
+         collect in two, we're collecting too much. It has to name the IP and the retention,
+         because those are the parts a reader would not otherwise assume. -->
+    <p class="poc"><strong>What this site records.</strong> To find out whether anyone uses this
+      and which numbers people don’t believe, it logs your requests (including your IP address and
+      browser), which options and assumptions you change, and anything you type into the question
+      box or the feedback row — kept indefinitely on this server. Nothing is sold, there are no
+      third-party trackers or ads, and the calculator works exactly the same if you block it.</p>
     Defaults are values sourced from
     <a href="https://github.com/AurelianTactics/solar-investment-research">this repo</a>.
     Edit any to fit your situation. Anything tagged <em>unsourced — pending research</em> should
@@ -405,6 +465,6 @@
 </div>
 <!-- Bump ?v= whenever app.js changes: it keeps a cached script from being served with a newer
      page skeleton (the mismatch renders no estimate; app.js also fails loudly if it happens). -->
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 ---
 title: "feat: minimal instrumentation — know what's happening, then know what's wrong"
 type: feat
-status: draft
+status: implemented
 date: 2026-07-20
 updated: 2026-07-21
 ---
@@ -309,3 +309,34 @@ question nobody asked and the real work is somewhere else entirely.
 - With the log at its byte ceiling, appends refuse, `/health` says so, and `/ask` still answers.
 - With the volume near full, the log refuses to append and the spend ledger still writes.
 - The page states, in plain English, what it collects — including the IP and the retention.
+
+---
+
+## Implementation status (2026-07-21)
+
+All four slices are built on branch `mcp-v001`. `pytest tests service/tests` → 320 passed;
+`tools/verify_web.py check` → exit 0. Code lives in `service/feedback.py` (the log), the middleware
+and `/events` in `service/app.py`, the `intent` field in `service/agent.py`, `_log_call` in
+`service/mcp_server.py`, and the event queue + feedback row in `web/`.
+
+Everything above shipped as written, with three decisions worth recording:
+
+1. **The S1 cache hit-counter was skipped deliberately.** Question frequency already falls out of
+   the log — every `/ask` logs the question verbatim with a `cached` flag — so the counter would
+   have been a second copy of the same signal, bought by rewriting the whole cache file on every
+   hit and disturbing a fail-soft structure the service depends on. Rationale and the one-line
+   `jq` replacement are in `docs/deploy-handoff.md`.
+2. **`/events` got its own rate-limit bucket** rather than sharing `/ask`'s. Batches flushed while
+   someone tunes assumptions would otherwise consume the allowance for asking questions — an
+   instrumentation change degrading the product, which is the thing this plan repeatedly rules out.
+3. **Client events are wired to gestures, not to state changes.** Instrumenting `selectOption()` /
+   `selectCompare()` directly would have fired on page load, on every shared scenario link, and
+   under the deterministic verifier — making every visitor look like they compared options and
+   destroying the one signal `compared` exists for.
+
+**Sequencing note the plan asked for and the deploy still owes.** The plan says not to start S3
+before the deploy is live and S1 has recorded something real. All four slices are *built* — but the
+prerequisite still stands for **acting** on any of it: none of this records anything durable until
+the Railway volume is attached (`docs/deploy-handoff.md` step 3). If S1 comes back showing nobody
+visits at all, S3 and S4 are answering a question nobody asked, and that finding is still ahead of
+us rather than behind us.

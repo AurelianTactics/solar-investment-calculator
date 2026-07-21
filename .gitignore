@@ -35,6 +35,10 @@ service/.spend.json
 # Agent-service extraction cache (question -> routing; regenerates itself, local state)
 service/.extraction-cache.json
 
+# Instrumentation event log (requests, questions, client events, feedback). Local/volume state:
+# it holds raw IPs and whatever visitors typed, so it is never committed. See service/feedback.py.
+service/.feedback.jsonl
+
 # Logs / cache / coverage
 *.log
 .cache/

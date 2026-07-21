@@ -1,11 +1,19 @@
 # Deploy handoff — what's built, what you have to do, what to check
 
-**Status: W4 (Railway) and W5 (public MCP) of `docs/plans/2026-07-15-001-feat-poc-closeout-plan.md`
-are implemented and tested locally. Nothing has been deployed.** Everything that could be done
-without your Railway account, a credit card, and an API key is done; this document is the rest.
+**Status: W4 (Railway) and W5 (public MCP) of `docs/plans/2026-07-15-001-feat-poc-closeout-plan.md`,
+plus all four slices of `docs/plans/2026-07-20-001-feat-minimal-user-feedback.md`
+(instrumentation), are implemented and tested locally. Nothing has been deployed.** Everything that
+could be done without your Railway account, a credit card, and an API key is done; this document is
+the rest.
 
-Written 2026-07-20, on branch `mcp-v001`. Nothing here is urgent — the local dev flow
-(`service/app.py` on port 8765, the page from `file://`) works exactly as before.
+Written 2026-07-20, updated 2026-07-21 with the instrumentation work, on branch `mcp-v001`. Nothing
+here is urgent — the local dev flow (`service/app.py` on port 8765, the page from `file://`) works
+exactly as before.
+
+> **Read the privacy decisions before you deploy.** The instrumentation stores raw IP addresses and
+> whatever visitors type, indefinitely. That is a deliberate, reversible choice, and it is the one
+> thing here I'd want you to actively agree with rather than inherit — see
+> [Decisions I made that you might want to overrule](#decisions-i-made-that-you-might-want-to-overrule).
 
 ---
 
@@ -25,6 +33,15 @@ already includes the proxy flags the rate limit depends on. From the Railway das
 | `SOLAR_AGENT_SPEND_CAP_USD` | `1` or `2` to start | Dollars **per day**, not lifetime. Raise it once you've seen real traffic. |
 | `SOLAR_AGENT_LEDGER_PATH` | `/data/.spend.json` | See the volume below. |
 | `SOLAR_AGENT_CACHE_PATH` | `/data/.extraction-cache.json` | Same volume. A warm cache is what makes repeat questions free. |
+| `SOLAR_FEEDBACK_PATH` | `/data/.feedback.jsonl` | Same volume. The instrumentation log — requests, questions, client events, feedback. Without this it writes inside the container and every event is lost on the next deploy. |
+
+Optional, all with working defaults — set them only if you want different numbers:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SOLAR_FEEDBACK_MAX_BYTES` | `52428800` (50 MB) | Byte ceiling for the log. At it, appends refuse (they never evict). |
+| `SOLAR_FEEDBACK_MIN_FREE_BYTES` | `209715200` (200 MB) | Free space the log refuses to eat into, so the spend ledger always has room. |
+| `SOLAR_EVENTS_RATE_LIMIT_PER_MINUTE` | `30` | Per-IP limit on `/events`, in its own bucket so it can't starve `/ask`. |
 
 `RAILWAY_PUBLIC_DOMAIN` is injected by Railway and picked up automatically — you don't set it. It's
 what gets the deploy's own hostname onto the MCP server's allowed-host list; without it every `/mcp`
@@ -32,9 +49,18 @@ request would be rejected as an invalid Host.
 
 ### 3. Attach a volume at `/data`
 
-Railway's container filesystem is ephemeral. Without a volume, both the spend ledger and the
-extraction cache reset on every redeploy. The cache resetting is a minor cost; the ledger resetting
-means the daily cap silently restarts each time you push.
+Railway's container filesystem is ephemeral. Without a volume, the spend ledger, the extraction
+cache, and the event log all reset on every redeploy. The cache resetting is a minor cost; the
+ledger resetting means the daily cap silently restarts each time you push; **the event log resetting
+means the instrumentation collects nothing at all** — every visit, question and piece of feedback
+vanishes the next time you deploy, and you'd never see an empty file to tell you.
+
+This step is now load-bearing rather than merely advisable. If you only half-do this deploy, do
+this part.
+
+All three files share the one volume (Railway allows one per service), which is why the log yields
+first: it stops appending while there is still room, so a flood of telemetry can never be what
+stops `/ask` writing its ledger. See `service/feedback.py`.
 
 ### 4. Keep it at one replica
 
@@ -52,9 +78,12 @@ Substitute your domain. Each of these is a claim the code makes that only a real
 # 1. The page is served, same-origin with the agent.
 curl -s https://<app>.up.railway.app/ | head -5
 
-# 2. Health reports today's spend against the DAILY cap.
+# 2. Health reports today's spend against the DAILY cap, AND the log's size against its ceiling.
 curl -s https://<app>.up.railway.app/health
-#    -> {"ok":true,"spend_usd_today":0.0,"cap_usd_per_day":1.0,"day":"2026-07-21"}
+#    -> {"ok":true,"spend_usd_today":0.0,"cap_usd_per_day":1.0,"day":"2026-07-21",
+#        "log":{"path":"/data/.feedback.jsonl","bytes":...,"accepting":true,...}}
+#    The path is the thing to read here: if it does NOT say /data, SOLAR_FEEDBACK_PATH didn't take
+#    and you are logging to a disk that disappears on the next deploy.
 
 # 3. The agent answers. This is the only call that costs money.
 curl -s -X POST https://<app>.up.railway.app/ask \
@@ -74,7 +103,44 @@ curl -s -X POST https://<app>.up.railway.app/mcp \
   -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 #    -> the four tools: list_options, get_assumptions, calculate, compare
+
+# 6. The event endpoint accepts a batch and refuses an oversized one.
+curl -s -X POST https://<app>.up.railway.app/events \
+  -H 'content-type: application/json' \
+  -d '{"events":[{"kind":"option_selected","option":"rooftop"}]}'
+#    -> {"ok":true,"written":1}
+
+curl -s -X POST https://<app>.up.railway.app/events \
+  -H 'content-type: application/json' \
+  -d "{\"events\":[{\"kind\":\"feedback\",\"text\":\"$(head -c 5000 /dev/zero | tr '\0' 'x')\"}]}"
+#    -> {"ok":false,"error":"too_large"}
 ```
+
+**The one check that needs two deploys — does the volume actually persist?** This is the claim no
+test can make, and the instrumentation is worthless if it's false:
+
+```sh
+# Before: note the byte count.
+curl -s https://<app>.up.railway.app/health   # -> "log":{"bytes":4210,...}
+# Now push any trivial commit, wait for the redeploy, and ask again.
+curl -s https://<app>.up.railway.app/health   # bytes must be >= what it was, NEVER back to 0
+```
+
+A reset to `0` means the volume isn't mounted where the app is writing, and every event so far is
+gone. Fix that before reading anything into the data.
+
+**Reading the log.** SSH/exec into the service (Railway dashboard → the service → shell) and it's
+just a file. No dashboard is planned or wanted at this traffic — with ten visitors you read the
+log, you don't aggregate it:
+
+```sh
+tail -5 /data/.feedback.jsonl
+grep '"kind": "feedback"' /data/.feedback.jsonl      # what people actually said
+grep '"kind": "assumption_edited"' /data/.feedback.jsonl   # which default nobody believes
+```
+
+When that gets old, `duckdb -c "select kind, count(*) from
+read_json_auto('/data/.feedback.jsonl') group by 1"` reads JSONL directly with no import step.
 
 **In a browser**, the thing worth looking at with your own eyes: open the page and ask a question.
 It should answer *through the agent* (no "the calculator agent isn't reachable" notice) — that's the
@@ -90,6 +156,42 @@ the whole thesis of the project in the shape an agent consumes.
 ---
 
 ## Decisions I made that you might want to overrule
+
+### The instrumentation ones, which are the ones that need you
+
+These four came from the plan and are all cheap to reverse — but they are choices about other
+people's data, so they should be yours rather than inherited.
+
+**Raw IP addresses are stored, along with user-agent and referrer.** The plan reversed its own
+earlier blanket no-PII rule here, on the grounds that it was ideology rather than a requirement:
+without a stable per-visitor value you cannot tell ten homeowners from one enthusiast reloading,
+and the referrer is literally the answer to "where is traffic coming from." It's what every web
+server's access log holds. **If you'd rather not**, hashing the IP with a per-deploy salt keeps
+"distinct visitors" and drops the identifier — a three-line change in `client_ip` at
+`service/app.py`. Doing it later doesn't retroactively clean what's already stored.
+
+**Question and feedback text are stored verbatim**, capped but not redacted. Storing it as typed is
+what makes it useful and a redaction pass would destroy the signal. The exposure is that a visitor
+can type anything into a box — including, eventually, something about themselves — and we keep it.
+
+**Retention is forever, and the log refuses rather than evicts.** It's a POC and the volume holds
+years of runway at this traffic. Eviction was rejected deliberately: it would delete the earliest
+and most interesting events to make room for whoever is currently flooding us. The consequence is
+that a full log stops recording rather than quietly rolling, which `/health` reports.
+
+**`/events` is public and unauthenticated**, like `/mcp`. There's nothing to authorize — it writes
+to a log nobody can read back through the API. The real exposure is disk, and per-IP rate limiting
+does **not** bound disk (it bounds rate; disk is rate integrated over time), so the actual bounds
+are the 2 KB body cap, the 20-event batch cap, the field-level allow-list, and the log's own byte
+ceiling. Someone determined can still write junk into the log; they cannot fill the volume or reach
+the ledger. If it ever becomes a nuisance, deleting the `/events` route degrades the page to
+server-side logging only and nothing breaks.
+
+**A privacy statement is on the page** (footer, R8) naming the IP, the free text, and the
+indefinite retention in two sentences. If you change any of the decisions above, that paragraph in
+`web/index.html` is what has to change with it — it is the only place a visitor learns any of this.
+
+### The deploy ones, from W4/W5
 
 **The daily cap starts at whatever you set, and I'd start low.** The plan said $1–2/day. A tripped
 cap degrades to the page's own calculator, which answers most questions anyway — so the downside of
@@ -147,20 +249,79 @@ request on earth), a 500-character question cap, and the input clamp.
 
 **`web/app.js`** — `SERVICE_URL` is now relative (`/ask`) when the page is hosted and the localhost
 port when it's on `file://`. Deciding by protocol rather than hostname keeps the verifier's
-`file://` flow working unchanged.
+`file://` flow working unchanged. `EVENTS_URL` follows the same rule.
+
+**`service/feedback.py`** — the append-only JSONL log, and the whole storage story. No database:
+the event shape will change several times in the first month and migrations on POC telemetry are
+friction, so JSONL defers the schema decision. Two guards before every append — a byte ceiling on
+the file, and a free-space floor on the volume — and every failure is soft, returning False rather
+than raising. That posture is the point: it shares a disk with a ledger that fails *closed*, so
+telemetry must never be what stops the agent answering.
+
+**`/events` and the request middleware in `service/app.py`** — one log line per request (the only
+telemetry that needs no client cooperation, and the only window onto `/mcp`), plus a batched
+client-event endpoint behind its own rate-limit bucket, body cap, batch cap and field allow-list.
+Free text is truncated where a batch is rejected: rejecting a batch costs an attacker nothing,
+while rejecting someone's paragraph throws away the feedback we asked for.
+
+**The `intent` field on the routing call** — the existing `/ask` structured-output call now also
+labels each question `calculate | feedback | out_of_scope` for a handful of extra output tokens,
+which turns the question box into a labeled feedback channel with no new UI. **It is recorded and
+never routed on.** If the classifier called a real question "feedback" and the page stopped
+calculating, that would be breaking the product to serve telemetry. Read a month of labels before
+letting it influence anything. When the model is unreachable or the cap has tripped the question is
+still logged, with `intent: "unknown"` — the text is the asset, the label is derivable offline.
+
+**The feedback row in `web/`** — thumbs under the estimate, and only on a click does an optional
+text box appear. Every submission attaches the scenario URL, which already encodes the option, the
+bill, the usage and every edited assumption: a thumbs-down alone is noise, one *with the scenario
+that produced it* is reproducible. Design evidence, including a bug that only looking caught, is in
+`docs/design/2026-07-21-feedback-row/`.
 
 ## Verification already done
 
 ```sh
-pytest tests service/tests      # 284 passed
+pytest tests service/tests      # 320 passed
 python tools/verify_web.py check  # exits 0
 ```
 
 The new tests worth knowing about: `service/tests/test_tools_core.py` asserts every MCP/agent
 payload equals `python src/cli.py --json` for the same inputs (parity as a test, not a claim);
 `test_deploy_surface.py` covers the rate limit, the proxy-header IP extraction, the length cap, and
-`/mcp` over HTTP; `test_spend.py::TestDailyWindow` covers the rollover.
+`/mcp` over HTTP; `test_spend.py::TestDailyWindow` covers the rollover. For the instrumentation,
+`test_feedback.py` pins the yielding behavior (refuses at the ceiling, refuses when the disk is
+low, never evicts, never raises) and `test_instrumentation.py` pins the HTTP surface — including
+the two that matter most: `/ask` still answers with the log refusing, and a full log does not stop
+the spend ledger writing.
+
+Beyond the automated suite, the instrumentation was **driven end to end against a running
+service**: a thumbs-down, a typed note with its scenario URL, an assumption edit (2.95 → 3.60,
+carrying the outgoing `default (sourced)` tag), an option selection, a comparison, and an MCP
+`calculate` call all landed as lines in the log. Looking at the page also caught a real bug — the
+feedback note box rendered open on load, because a class rule beat the `hidden` attribute — which
+every test passed straight through. Before/after in `docs/design/2026-07-21-feedback-row/`.
 
 What tests **cannot** cover, and why the checks above exist: whether Railway's proxy actually
-forwards the headers, whether the volume actually persists, and whether a real MCP client can
-actually connect. Those need the deploy.
+forwards the headers, whether the volume actually persists across a redeploy, and whether a real
+MCP client can actually connect. Those need the deploy.
+
+## Deliberately not built
+
+**Nothing reads the log automatically, and nothing ever edits `assumptions.py` from it.** That's a
+founding-rule constraint, not a gap: "sourced defaults trace to research; the calculator never
+invents numbers." Feedback naming a bad default becomes a *research question* in
+`solar-investment-research`, and a human reads the file. Auto-editing would convert one confused
+visitor into a wrong sourced default. The agent that reads the log and drafts research questions is
+a real thing to build later — and a much better thing to build once there's a month of real events
+to test it against, rather than designing an automation against imagined data.
+
+**No dashboard, no database, no analytics vendor, no accounts.** All explicitly out of scope in the
+plan, and at ten visitors a month reading the file beats any of them.
+
+**One plan item I skipped, deliberately.** S1 suggested adding a hit counter and the normalized
+question text to the extraction cache, to get a frequency-ranked list of what people ask. I didn't:
+every question is already logged verbatim on every `/ask` with a `cached` flag, so frequency *and*
+cache-hit rate both fall out of the log by grouping — and the cache alternative would have meant
+rewriting the whole cache file on every hit (turning the free path into a write) and changing a
+data structure whose fail-soft contract the service depends on. Same signal, no risk. If you want
+the ranking: `grep '"kind": "ask"' /data/.feedback.jsonl | jq -r .question | sort | uniq -c | sort -rn`.

@@ -7,6 +7,8 @@ One FastAPI app (`app.py`) serving three things from one origin:
 | `/` | the static page from `web/` | no |
 | `/ask` | natural-language question → calculator answer | **yes** — the only path that can |
 | `/mcp` | the calculator as MCP tools | no — there's no model on that path |
+| `/events` | client events + feedback, appended to the log | no — a file append |
+| `/health` | liveness, today's spend, the log's size | no |
 
 `/ask` turns "What savings would I get with community solar when my bill is $150 a month?" into the
 same structured payload `python src/cli.py --json` emits. One LangGraph graph: **extract** (a
@@ -140,6 +142,55 @@ answered when the spend cap is reached, since serving it spends nothing.
 
 Delete the file to force fresh routing.
 
+## Instrumentation — one log, appended, that yields to everything else
+
+`feedback.py` writes one JSON object per line to a single file. Requests, `/ask` questions with
+their intent label, MCP tool calls, client events, thumbs and free text all share the stream,
+distinguished by `kind`. There is no database: the event shape will change several times early on,
+and migrations on POC telemetry are pure friction. DuckDB reads JSONL directly when you want to
+query it (`read_json_auto`), so nothing is given up by waiting.
+
+Four writers:
+
+| `kind` | written by | holds |
+|---|---|---|
+| `request` | the middleware in `app.py` | method, routed path, status, duration, IP, user-agent, referrer |
+| `ask` | `/ask` | the question verbatim, its `intent`, the routed option, whether it was cached, any error |
+| `mcp_tool_call` | each tool in `mcp_server.py` | tool name and an argument *summary* (option keys, which input keys — not values) |
+| `option_selected` / `assumption_edited` / `compared` / `feedback` | `/events`, from `web/app.js` | see the plan's S3/S4 |
+
+`assumption_edited` is the one with real research value: it carries `from`, `to`, and the assumption's
+*outgoing* tag, so an edit to a **sourced** default reads as "our source is stale or a bad central
+estimate", while an edit to an **unsourced** placeholder is a vote on which honest unknown to
+research first. Direction and magnitude are the finding — not the count.
+
+**The log yields before anything else does.** It shares one Railway volume with the spend ledger,
+and the ledger fails *closed* — a ledger it can't write stops `/ask` answering. So two checks run
+before every append: a byte ceiling on the log, and a free-space floor on the volume (the one that
+matters, since it doesn't care *what* filled the disk). On either it **refuses; it never evicts** —
+retention is forever, so evicting would delete the earliest events on behalf of whoever is flooding
+us. `/health` reports size against ceiling so "the log is 80% full" is visible, not discovered.
+Every failure is soft: `append()` returns False and never raises.
+
+`/events` is public and unauthenticated, and per-IP rate limiting does **not** bound disk — it
+bounds rate, and disk is rate integrated over time. What actually bounds it: a 2 KB body cap
+enforced on the raw body, a 20-event batch cap, a field-level allow-list, and the ceiling above.
+Oversized batches are rejected but oversized free text is **truncated** — rejecting a batch costs an
+attacker nothing, while rejecting a person's paragraph throws away the feedback we asked for.
+
+| env var | default | meaning |
+|---|---|---|
+| `SOLAR_FEEDBACK_PATH` | `service/.feedback.jsonl` | log location (gitignored). On Railway: `/data/.feedback.jsonl` |
+| `SOLAR_FEEDBACK_MAX_BYTES` | 50 MB | byte ceiling; at it, appends refuse |
+| `SOLAR_FEEDBACK_MIN_FREE_BYTES` | 200 MB | free space the log won't eat into |
+| `SOLAR_EVENTS_RATE_LIMIT_PER_MINUTE` | 30 | per-IP, in its own bucket so it can't starve `/ask` |
+
+The `intent` label on `/ask` (`calculate` | `feedback` | `out_of_scope`) rides along on the routing
+call that already exists. **It is logged and never acted on.** A classifier that mislabeled a real
+question would otherwise stop the page calculating — breaking the product to serve telemetry. When
+the model is unreachable or the cap has tripped, the question is still logged with
+`intent: "unknown"`; the text is the asset and the label is derivable offline.
+
 ## Error contract (what the frontend keys on)
 
 | condition | response |
@@ -152,6 +203,8 @@ Delete the file to force fresh routing.
 | bad/over-range input | `{"error": "compute_error: ..."}` |
 | question over the length cap | `{"error": "question_too_long", "detail": ...}` |
 | too many questions from one IP | `{"error": "rate_limited", "detail": ...}` |
+| `/events`: batch stored (fully or partly) | `{"ok": true, "written": n}` — `n` may be 0 if the log is refusing |
+| `/events`: over the body/batch caps, bad JSON, or rate limited | `{"ok": false, "error": "too_large" \| "too_many_events" \| "bad_json" \| "rate_limited"}` |
 | service not running | (no response — the frontend's 4s fetch timeout handles it) |
 
 Every one of these is HTTP 200 with an `error` field, because the frontend's job on all of them is
@@ -173,6 +226,8 @@ key, something has gone wrong.
 | `test_tools_core.py` | **parity as a test** — every payload equals `src/cli.py --json` for the same inputs; plus the input clamp |
 | `test_mcp_server.py` | the four tools, their payloads, and that no key or spend is involved |
 | `test_deploy_surface.py` | rate limit, real-client-IP extraction, length cap, static mount, `/mcp` over HTTP |
+| `test_feedback.py` | the log yields first — refuses at the ceiling and on a low disk, never evicts, never raises |
+| `test_instrumentation.py` | what gets recorded, the `/events` caps, and that `/ask` still answers with the log refusing |
 | `test_spend.py` | pricing, the rolling daily window, fail-closed-on-corrupt |
 | `test_cache.py` | cache hits/misses, version invalidation, fail-soft |
 | `test_agent.py` | routing, honest tagging, the error contract |

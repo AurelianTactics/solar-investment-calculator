@@ -14,7 +14,11 @@
 // the agent". The headline renders into the sticky `#result` card; steps + assumptions render
 // into `#detail` inside the "Refine this estimate" drawer; the tighter-estimate tip renders into
 // `#tip-body` under the Ask box. `#copy-link` (optional — wired only if present) copies the
-// scenario URL.
+// scenario URL, and `#feedback-row` (also optional) is the thumbs + note row.
+//
+// INSTRUMENTATION is fire-and-forget and never on a render path — see the note by EVENTS_URL. The
+// page must behave identically with /events unreachable, refusing, or absent, which is exactly how
+// the deterministic verifier drives it (file://, no service running).
 //
 // STATE <-> TEXT is a closed loop, and both directions are load-bearing:
 //   state -> text   `syncQuestionBox()` rewrites #question from the current scenario on every
@@ -62,6 +66,54 @@ const DEFAULT_MONTHLY_BILL = 168.41; // Maine DOE — CMP average residential bi
 // unchanged no matter where the page is hosted.
 const SERVICE_URL = location.protocol === "file:" ? "http://127.0.0.1:8765/ask" : "/ask";
 const ASK_TIMEOUT_MS = 4000;
+
+// --- instrumentation (S3/S4) ----------------------------------------------
+// Which option people look at, which assumption they DON'T believe, and whether anyone compares.
+// Same origin rule as SERVICE_URL, for the same reason.
+//
+// Three properties this must hold, in order of how bad it is to lose them:
+//
+//   1. It can never break the page (R9). Every call is inside a try/catch, every request is
+//      fire-and-forget with its rejection swallowed, and nothing on a render path awaits one. The
+//      endpoint returning 500, being absent, or being blocked is indistinguishable to the user —
+//      which the verifier tests for free, since it drives the page from file:// with no service.
+//   2. It records GESTURES, not state changes. The wiring lives on the click and change handlers
+//      rather than inside selectOption()/selectCompare(), because those also run on page load, on
+//      a shared link, and under the deterministic verifier. Instrumenting them would make every
+//      visitor look like they compared options, destroying the one signal `compared` exists for.
+//   3. It batches. A single drag on an assumption spinner would otherwise be twenty requests.
+const EVENTS_URL = location.protocol === "file:" ? "http://127.0.0.1:8765/events" : "/events";
+const EVENT_FLUSH_MS = 1500;
+const EVENT_BATCH_MAX = 20;      // matches the server's per-batch cap; a bigger batch is refused
+
+let eventQueue = [];
+let eventTimer = null;
+
+function track(kind, fields) {
+  try {
+    eventQueue.push({ kind, ...(fields || {}) });
+    if (eventQueue.length >= EVENT_BATCH_MAX) return flushEvents();
+    if (eventTimer) clearTimeout(eventTimer);
+    eventTimer = setTimeout(flushEvents, EVENT_FLUSH_MS);
+  } catch (e) { /* telemetry must never be why a click did nothing */ }
+}
+
+// `keepalive` so a flush fired from visibilitychange survives the page going away — the last thing
+// someone did before leaving is exactly the event worth having.
+function flushEvents() {
+  try {
+    if (eventTimer) { clearTimeout(eventTimer); eventTimer = null; }
+    if (!eventQueue.length) return;
+    const batch = eventQueue.splice(0, EVENT_BATCH_MAX);
+    if (eventQueue.length) eventTimer = setTimeout(flushEvents, EVENT_FLUSH_MS);
+    fetch(EVENTS_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ events: batch }),
+      keepalive: true,
+    }).catch(() => {});      // unreachable, refusing, or absent — all the same to the page
+  } catch (e) { /* ignore */ }
+}
 
 // --- capital-allocation engine (mirror of src/capital.py) ------------------
 function capitalCompare({ upfrontCost, annualSavingsYear1, horizonYears = 25, opportunityRate = 0.07, escalation = 0, degradation = 0 }) {
@@ -1620,7 +1672,18 @@ function wireAssumptionInputs(root) {
       const dicts = e.target.hasAttribute("data-shared")
         ? activeDicts().filter((d) => d[key])          // shared: move every row at once
         : [opt && compareAssumptions ? compareAssumptions[opt] : assumptions];
+      // Read the outgoing value BEFORE overwriting it: the research finding is the direction and
+      // magnitude of the correction, not that an edit happened. Ten people all raising
+      // installed_cost_per_w from 2.95 to about 3.60 is a sourced-number update with evidence.
+      // The outgoing TAG is what splits the two signals apart — a correction to a *sourced*
+      // default says our source is stale or a bad central estimate; a correction to an *unsourced*
+      // placeholder is a vote on which honest unknown to research first.
+      const prev = dicts[0] && dicts[0][key];
       for (const d of dicts) d[key] = { ...d[key], value: v, tag: TAGS.USER_PROVIDED, source: null };
+      track("assumption_edited", {
+        key, option: opt || currentOption, to: v,
+        from: prev ? prev.value : null, tag: prev ? prev.tag : null,
+      });
       if (key === "default_monthly_bill") {
         // Agent payloads include this row; the computed bill lives in the #bill input — keep
         // them in lockstep so editing the row actually changes the result.
@@ -1675,12 +1738,23 @@ function initPage() {
     btn.addEventListener("click", () => { qbox.value = btn.textContent.trim(); askQuestion(qbox.value); });
   });
 
-  // refine flow: one option, or several side by side
+  // refine flow: one option, or several side by side.
+  // Tracking hangs off these GESTURES rather than off selectOption()/selectCompare() — see the
+  // instrumentation note at the top. Reporting the state AFTER the call, not the button's own key:
+  // clicking "battery" while rooftop is active lands on battery+rooftop, and that is what was
+  // actually looked at.
   document.querySelectorAll("button.mode").forEach((btn) => {
-    btn.addEventListener("click", () => setMode(btn.getAttribute("data-mode")));
+    btn.addEventListener("click", () => {
+      setMode(btn.getAttribute("data-mode"));
+      if (inCompare()) track("compared", { options: compareKeys });
+      else track("option_selected", { option: currentOption });
+    });
   });
   document.querySelectorAll("button.toggle[data-part]").forEach((btn) => {
-    btn.addEventListener("click", () => toggleOption(btn.getAttribute("data-part")));
+    btn.addEventListener("click", () => {
+      toggleOption(btn.getAttribute("data-part"));
+      track("option_selected", { option: currentOption });
+    });
   });
 
   // The compare picker is built from the registry, so all seven states are reachable WITHOUT the
@@ -1690,7 +1764,13 @@ function initPage() {
   cmpHost.innerHTML = ALL_OPTION_KEYS.map((k) =>
     `<button class="toggle" type="button" data-cmp-key="${k}" aria-pressed="false" title="${blurbText(k)}">${OPTIONS[k].label}</button>`).join("");
   cmpHost.querySelectorAll("button[data-cmp-key]").forEach((btn) => {
-    btn.addEventListener("click", () => toggleCompareKey(btn.getAttribute("data-cmp-key")));
+    btn.addEventListener("click", () => {
+      toggleCompareKey(btn.getAttribute("data-cmp-key"));
+      // Dropping to one option leaves comparison entirely — that is an option_selected, not a
+      // one-key "comparison".
+      if (inCompare()) track("compared", { options: compareKeys });
+      else track("option_selected", { option: currentOption });
+    });
   });
 
   // The single-option toggles are static markup, but their tooltips come from the SAME registry
@@ -1754,6 +1834,8 @@ function initPage() {
     }
   });
 
+  wireFeedbackRow();
+
   // A shared scenario wins over the default landing state; otherwise R2 stands — with no user
   // input the default render is the sourced average Maine CMP bill, laid out as the comparison
   // that actually answers a homeowner's first question. Landing on ONE option made the page look
@@ -1763,3 +1845,55 @@ function initPage() {
   // plug-in kit -> a full roof), which is also the order a homeowner escalates through.
   if (!hydrateFromUrl()) selectCompare(DEFAULT_COMPARE.slice());
 }
+
+// S4 — the one active ask. Every submission carries scenarioUrl(), which already encodes the
+// option, the bill, the usage and every edited assumption: a thumbs-down on its own is noise, but
+// a thumbs-down WITH the scenario that produced it is reproducible. That attachment is the whole
+// design; the thumb is only the door.
+//
+// Optional markup, like #copy-link — an older page skeleton must not break the calculator.
+function wireFeedbackRow() {
+  const row = document.getElementById("feedback-row");
+  if (!row) return;
+  const up = document.getElementById("fb-up");
+  const down = document.getElementById("fb-down");
+  const note = document.getElementById("fb-note");
+  const text = document.getElementById("fb-text");
+  const send = document.getElementById("fb-send");
+  const thanks = document.getElementById("fb-thanks");
+  let verdict = null;
+
+  const vote = (which, btn, other) => {
+    verdict = which;
+    btn.setAttribute("aria-pressed", "true");
+    other.setAttribute("aria-pressed", "false");
+    note.hidden = false;
+    thanks.hidden = true;
+    // Send the thumb immediately: the text box is optional, and most people who click will never
+    // fill it in. Waiting for a submit that never comes would lose the click entirely.
+    track("feedback", { verdict, scenario_url: scenarioUrl() });
+    flushEvents();
+    try { text.focus(); } catch (e) { /* focus is a nicety, never a dependency */ }
+  };
+
+  up.addEventListener("click", () => vote("up", up, down));
+  down.addEventListener("click", () => vote("down", down, up));
+
+  send.addEventListener("click", () => {
+    const typed = (text.value || "").trim();
+    if (!typed) return;
+    track("feedback", { verdict: verdict || "none", text: typed, scenario_url: scenarioUrl() });
+    flushEvents();
+    text.value = "";
+    note.hidden = true;
+    thanks.hidden = false;
+  });
+}
+
+// Anything still queued when the page goes away. `visibilitychange` -> hidden is the reliable
+// signal on mobile, where `unload` frequently never fires at all; `pagehide` covers the
+// back/forward cache. Both are cheap and idempotent — flushEvents() no-ops on an empty queue.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushEvents();
+});
+window.addEventListener("pagehide", () => flushEvents());
