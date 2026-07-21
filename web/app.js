@@ -52,9 +52,15 @@ const WHAT_MODELING_CHOICE = "Not an external document — a modeling choice sta
 
 const DEFAULT_MONTHLY_BILL = 168.41; // Maine DOE — CMP average residential bill @ 550 kWh (sourced)
 
-// The local agent service (service/app.py). The page must work fully without it (R7):
+// The agent service (service/app.py). The page must work fully without it (R7):
 // any network error, timeout, non-OK status, or structured error body -> form flow + notice.
-const SERVICE_URL = "http://127.0.0.1:8765/ask";
+//
+// On the deploy, FastAPI serves this page and /ask from the same origin, so a relative path is
+// both correct and CORS-free. From file:// there is no origin to be relative TO — that is the dev
+// and verifier flow, which reaches the local service on its port. Deciding by protocol rather
+// than by hostname keeps the file:// path (whose fallback notice the verifier asserts) working
+// unchanged no matter where the page is hosted.
+const SERVICE_URL = location.protocol === "file:" ? "http://127.0.0.1:8765/ask" : "/ask";
 const ASK_TIMEOUT_MS = 4000;
 
 // --- capital-allocation engine (mirror of src/capital.py) ------------------

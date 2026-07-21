@@ -1,10 +1,24 @@
-# Agent service — natural-language questions → calculator answers
+# Service — the page, the agent endpoint, and the MCP server
 
-A small local service that turns "What savings would I get with community solar when my bill is
-$150 a month?" into the same structured payload `python src/cli.py --json` emits. One
-LangGraph graph: **extract** (a single `claude-opus-4-8` structured-output call that picks the
-option and pulls out stated numbers) → **compute** (direct `src/` imports — the LLM never does
-arithmetic). Local-only by decision; deployment is out of scope.
+One FastAPI app (`app.py`) serving three things from one origin:
+
+| Path | What | Costs money? |
+|---|---|---|
+| `/` | the static page from `web/` | no |
+| `/ask` | natural-language question → calculator answer | **yes** — the only path that can |
+| `/mcp` | the calculator as MCP tools | no — there's no model on that path |
+
+`/ask` turns "What savings would I get with community solar when my bill is $150 a month?" into the
+same structured payload `python src/cli.py --json` emits. One LangGraph graph: **extract** (a
+single `claude-opus-4-8` structured-output call that picks the option and pulls out stated numbers)
+→ **compute** (direct `src/` imports — the LLM never does arithmetic).
+
+`tools_core.py` is where "run the calculator and return the payload" is implemented, once. `/ask`,
+the MCP server, and the parity tests are its three callers, so an agent and a human asking the same
+question cannot get different numbers. The input clamp lives there too, which is what makes the
+public MCP surface safe (see below).
+
+Deploying it: `railway.toml` plus `docs/deploy-handoff.md`.
 
 ## Setup (one time)
 
@@ -50,21 +64,53 @@ Invoke-RestMethod -Uri http://127.0.0.1:8765/ask -Method Post `
 The numbers must match `python src/cli.py --bill 150 --json` exactly — the service imports the
 same core.
 
-## Spending cap
+## Spending cap — dollars per day
 
 Every response's token usage is priced ($5/$25 per MTok for opus) and accumulated in the
-gitignored `service/.spend.json`, so the cap survives restarts. The cap is checked **before**
-each LLM call; once reached, `/ask` returns `{"error": "cap_exceeded"}` and the frontend falls
-back to the form flow. Configure:
+gitignored `service/.spend.json`, so the cap survives restarts. The window is **one UTC day**: a
+total recorded on any other day reads as zero. That distinction only matters in public, where a
+cumulative-forever total isn't a cap but a fuse — it blows once and stays blown until a human
+deletes a file.
+
+The cap is checked **before** each LLM call; once reached, `/ask` returns
+`{"error": "cap_exceeded"}` and the frontend falls back to the form flow. A corrupt ledger fails
+**closed** (treated as over cap): an unreadable file must never become free money.
 
 | env var | default | meaning |
 |---|---|---|
-| `SOLAR_AGENT_SPEND_CAP_USD` | `5.0` | total spend ceiling |
-| `SOLAR_AGENT_LEDGER_PATH` | `service/.spend.json` | ledger location |
-| `SOLAR_AGENT_PORT` | `8765` | HTTP port |
+| `SOLAR_AGENT_SPEND_CAP_USD` | `5.0` | spend ceiling **per day** |
+| `SOLAR_AGENT_LEDGER_PATH` | `service/.spend.json` | ledger location (point at a volume on a deploy) |
+| `SOLAR_AGENT_PORT` | `8765` | HTTP port (`PORT` wins, for the deploy) |
 | `SOLAR_AGENT_ENV_FILE` | repo-root `.env` | which `.env` to auto-load on startup (missing file = no-op) |
+| `SOLAR_AGENT_RATE_LIMIT_PER_MINUTE` | `10` | per-IP `/ask` allowance |
+| `SOLAR_AGENT_MAX_QUESTION_CHARS` | `500` | `/ask` refuses longer questions before the model sees them |
 
 Reset the budget by deleting the ledger file (a deliberate act, on purpose).
+
+## MCP server — the calculator as tools
+
+Four tools over `tools_core`: `list_options`, `get_assumptions`, `calculate`, `compare`.
+**No LLM is on this path** — the agent calling the tools *is* the model, so there's no key, no
+ledger, and no cap to reason about. What makes it worth exposing is the shape of what it returns:
+not just a number, but every labeled assumption, its source, what that source *is*, and the full
+step chain — enough for an agent to cite its work and a user to fact-check it.
+
+```powershell
+# local, no hosting at all
+& $env:USERPROFILE\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe service\mcp_server.py --stdio
+```
+
+Mounted at `/mcp` on the deploy (streamable HTTP, stateless), public and unauthenticated by
+decision: there's no user data, no secret, and nothing to authorize. The one real risk — a single
+request driving an unbounded loop, e.g. `{"horizon_years": 1e9}` — is bounded on the **input** in
+`tools_core.check_inputs`, because a rate limit bounds request *frequency* and can do nothing about
+one bad request. Out-of-range values are rejected, never silently clamped, so an agent can't get an
+answer to a question it didn't ask. `/ask` routes through the same core and inherits the bound.
+
+| env var | default | meaning |
+|---|---|---|
+| `SOLAR_MCP_ALLOWED_HOSTS` | (none) | extra hostnames for the DNS-rebinding allow-list, comma-separated |
+| `RAILWAY_PUBLIC_DOMAIN` | (injected by Railway) | picked up automatically — without it, a deploy rejects every `/mcp` request as an invalid Host |
 
 ## Extraction cache — the model is the last resort, not the first
 
@@ -101,9 +147,16 @@ Delete the file to force fresh routing.
 | routable question | CLI-shaped payload + `agent` + `followup` fields |
 | repeat of any earlier question | same payload shape, recomputed fresh, **zero** LLM calls |
 | off-topic question | `{"error": "unanswerable"}` |
-| cap reached | `{"error": "cap_exceeded", "detail": ...}` |
+| cap reached (today) | `{"error": "cap_exceeded", "detail": ...}` |
 | LLM timeout/failure | `{"error": "llm_error: ..."}` |
+| bad/over-range input | `{"error": "compute_error: ..."}` |
+| question over the length cap | `{"error": "question_too_long", "detail": ...}` |
+| too many questions from one IP | `{"error": "rate_limited", "detail": ...}` |
 | service not running | (no response — the frontend's 4s fetch timeout handles it) |
+
+Every one of these is HTTP 200 with an `error` field, because the frontend's job on all of them is
+identical: fall back to its own calculator and say why. The page must work fully without this
+service, and that fallback is verifier-enforced.
 
 ## Tests
 
@@ -111,4 +164,15 @@ Delete the file to force fresh routing.
 & $env:USERPROFILE\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe -m pytest service\tests
 ```
 
-Every test stubs the LLM (the `Agent(extractor=...)` seam) — no network, no key, no spend.
+Every test stubs the LLM (the `Agent(extractor=...)` seam) — no network, no key, no spend. The MCP
+tests stub nothing, because there is no model on that path to stub; if they ever start needing a
+key, something has gone wrong.
+
+| file | what it holds |
+|---|---|
+| `test_tools_core.py` | **parity as a test** — every payload equals `src/cli.py --json` for the same inputs; plus the input clamp |
+| `test_mcp_server.py` | the four tools, their payloads, and that no key or spend is involved |
+| `test_deploy_surface.py` | rate limit, real-client-IP extraction, length cap, static mount, `/mcp` over HTTP |
+| `test_spend.py` | pricing, the rolling daily window, fail-closed-on-corrupt |
+| `test_cache.py` | cache hits/misses, version invalidation, fail-soft |
+| `test_agent.py` | routing, honest tagging, the error contract |

@@ -22,18 +22,16 @@ extractor touches the network (and records its token usage in the spend ledger).
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import sys
 from typing import Callable, Literal, Optional, TypedDict
 
 from pydantic import BaseModel, Field
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
-import solar_calc  # noqa: E402
-from cli import CAPITAL_OPTIONS, capital_spec, render_capital_json, render_community_json  # noqa: E402
-from assumptions import default_assumptions  # noqa: E402
+import tools_core  # noqa: E402  (the shared payload builder — see its module docstring)
 
 MODEL = "claude-opus-4-8"
 
@@ -129,58 +127,19 @@ def build_default_extractor(ledger) -> Callable[[str], Extraction]:
     return extract
 
 
-def _apply_inputs(assumptions: dict, inputs: dict) -> dict:
-    """Apply extracted values onto assumption records, tolerating battery_-prefix mismatches.
-
-    The extraction schema keys battery numbers as ``battery_usable_kwh`` (the combo namespacing),
-    but the plain battery option uses bare keys — and vice versa a model may emit a bare key for
-    a combo. Try the key, then its prefix-flipped twin. Anything still unmapped is RETURNED, not
-    silently dropped — the caller surfaces it so the answer never claims an input it didn't use.
-    """
-    ignored: dict = {}
-    for key, val in inputs.items():
-        target = key
-        if target not in assumptions:
-            flipped = key[len("battery_"):] if key.startswith("battery_") else "battery_" + key
-            target = flipped if flipped in assumptions else None
-        if target is None:
-            ignored[key] = val
-        else:
-            assumptions[target] = assumptions[target].with_user_value(val)
-    return ignored
-
-
 def compute_payload(extraction: Extraction) -> tuple[dict, dict]:
     """Run the Python core for the routed option.
+
+    A thin adapter over ``tools_core.calculate`` — the one payload builder, shared with the MCP
+    server. The routing decision is this module's job; producing the answer is not. Routing through
+    ``tools_core`` is also what applies the input clamp to ``/ask``: ``Extraction.inputs`` is an
+    open ``dict[str, float]``, so an LLM (or a prompt-injected question) could otherwise hand
+    ``horizon_years: 1e9`` straight to the capital engine.
 
     Returns ``(payload, ignored_inputs)`` — the CLI --json payload shape, plus any extracted
     inputs that mapped to no assumption of the routed option (surfaced for honesty).
     """
-    inputs = dict(extraction.inputs)
-    if extraction.option == "community":
-        a = default_assumptions()
-        bill = inputs.pop("monthly_bill", None)
-        if bill is not None:
-            a["default_monthly_bill"] = a["default_monthly_bill"].with_user_value(bill)
-        else:
-            bill = a["default_monthly_bill"].value
-        annual_usage = inputs.pop("annual_usage_kwh", None)
-        ignored = _apply_inputs(a, inputs)  # any other extracted community assumption
-        result = solar_calc.compute(
-            monthly_bill=bill,
-            price_per_kwh=a["price_per_kwh"].value,
-            bill_offset_fraction=a["bill_offset_fraction"].value,
-            subscription_discount_pct=a["subscription_discount_pct"].value,
-            allocation_pct=a["allocation_pct"].value,
-            annual_usage_kwh=annual_usage,
-        )
-        return json.loads(render_community_json(bill, a, result)), ignored
-
-    module, merged = capital_spec(extraction.option)
-    ignored = _apply_inputs(merged, inputs)
-    result = module.compute_from_assumptions(merged)
-    shown = CAPITAL_OPTIONS[extraction.option]["shown"]
-    return json.loads(render_capital_json(extraction.option, merged, result, shown)), ignored
+    return tools_core.calculate(extraction.option, extraction.inputs)
 
 
 class Agent:

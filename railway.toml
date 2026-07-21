@@ -1,0 +1,31 @@
+# Railway build + run config. One service, one instance: FastAPI serves the static page, /ask,
+# and /mcp from the same origin (see service/app.py).
+#
+# --proxy-headers / --forwarded-allow-ips are NOT cosmetic: Railway terminates TLS at a proxy, so
+# without them every request's client address is the proxy's, and the per-IP rate limit on /ask
+# either throttles the whole internet as one client or throttles nobody.
+#
+# Single instance only. The spend ledger and the rate-limit bucket are both in-process / on-disk
+# with no atomic increments; scaling this horizontally silently multiplies the daily cap by the
+# replica count.
+#
+# Env vars to set in the Railway dashboard (see docs/deploy-handoff.md):
+#   ANTHROPIC_API_KEY           secret; without it /ask errors and the page falls back to its
+#                               built-in calculator (which is the designed behavior, not an outage)
+#   SOLAR_AGENT_SPEND_CAP_USD   dollars PER DAY. Start at 1-2.
+#   SOLAR_AGENT_LEDGER_PATH     /data/.spend.json  -> needs a volume mounted at /data, or the
+#                               container's ephemeral disk resets the day's spend on every deploy
+#   SOLAR_AGENT_CACHE_PATH      /data/.extraction-cache.json  (same volume; a warm cache is what
+#                               keeps repeat questions free)
+# RAILWAY_PUBLIC_DOMAIN is injected by Railway and is picked up automatically for the MCP host
+# allow-list.
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "uvicorn service.app:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+numReplicas = 1

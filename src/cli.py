@@ -342,6 +342,12 @@ def build_comparison(keys: list[str], args) -> list[dict]:
         a = dicts[key]
         if key == "community":
             bill = args.bill if args.bill is not None else a["default_monthly_bill"].value
+            if args.bill is not None:
+                # Your bill IS the bill — retag the assumption so the ledger shows the number the
+                # estimate actually used, not the sourced average it fell back FROM. Without this
+                # the assumption block cites a source for a figure it didn't use, and the agent
+                # and web surfaces (which have always retagged) disagree with the CLI.
+                a["default_monthly_bill"] = a["default_monthly_bill"].with_user_value(args.bill)
             result = compute_community(
                 monthly_bill=bill,
                 price_per_kwh=a["price_per_kwh"].value,
@@ -494,6 +500,12 @@ def main(argv=None) -> int:
             # No --bill? Fall back to the sourced average Maine bill (R2) — still an assumption,
             # shown with its tag, never silently invented.
             bill = args.bill if args.bill is not None else a["default_monthly_bill"].value
+            if args.bill is not None:
+                # Your bill IS the bill — retag the assumption so the ledger shows the number the
+                # estimate actually used, not the sourced average it fell back FROM. Without this
+                # the assumption block cites a source for a figure it didn't use, and the agent
+                # and web surfaces (which have always retagged) disagree with the CLI.
+                a["default_monthly_bill"] = a["default_monthly_bill"].with_user_value(args.bill)
             result = compute_community(
                 monthly_bill=bill,
                 price_per_kwh=a["price_per_kwh"].value,

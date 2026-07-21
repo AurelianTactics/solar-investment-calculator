@@ -1,8 +1,11 @@
-"""Spend-ledger tests: accumulation, restart persistence, cap enforcement, gitignore.
+"""Spend-ledger tests: accumulation, restart persistence, the rolling daily window, cap
+enforcement, fail-closed posture, gitignore.
 
 No network anywhere. Run with: pytest service/tests
 """
 
+import datetime
+import json
 import os
 import sys
 
@@ -54,6 +57,51 @@ class TestLedger:
     def test_ledger_file_is_gitignored(self):
         with open(os.path.join(REPO_ROOT, ".gitignore"), encoding="utf-8") as fh:
             assert "service/.spend.json" in fh.read()
+
+
+class TestDailyWindow:
+    """The cap is $X per day, not $X ever — otherwise a public deploy blows a fuse once and
+    serves cap_exceeded until a human deletes a file."""
+
+    def test_yesterdays_spend_does_not_count_against_today(self, tmp_path):
+        path = tmp_path / "spend.json"
+        path.write_text(json.dumps({"day": "2020-01-01", "total_usd": 99.0, "calls": 7}),
+                        encoding="utf-8")
+        ledger = SpendLedger(path=str(path), cap_usd=1.0)
+        assert ledger.total_usd == 0.0
+        assert not ledger.over_cap
+
+    def test_recording_after_a_rollover_starts_from_zero(self, tmp_path):
+        path = tmp_path / "spend.json"
+        path.write_text(json.dumps({"day": "2020-01-01", "total_usd": 99.0, "calls": 7}),
+                        encoding="utf-8")
+        ledger = SpendLedger(path=str(path), cap_usd=5.0)
+        ledger.record(200_000, 0)                      # $1.00
+        assert ledger.total_usd == pytest.approx(1.0)  # not 100.0
+        assert json.loads(path.read_text(encoding="utf-8"))["day"] == SpendLedger.today()
+
+    def test_same_day_still_accumulates(self, tmp_path):
+        ledger = make_ledger(tmp_path)
+        ledger.record(200_000, 0)
+        ledger.record(200_000, 0)
+        assert ledger.total_usd == pytest.approx(2.0)
+
+    def test_a_pre_daily_window_file_reads_as_a_new_day(self, tmp_path):
+        # Files written by the cumulative-forever version carry no "day" key at all. Treating
+        # them as today would import an arbitrary lifetime total into one day's budget.
+        path = tmp_path / "spend.json"
+        path.write_text(json.dumps({"total_usd": 4.9, "calls": 300}), encoding="utf-8")
+        assert SpendLedger(path=str(path), cap_usd=5.0).total_usd == 0.0
+
+    def test_corrupt_still_fails_closed_under_the_new_window(self, tmp_path):
+        # The rollover logic must not become an accidental "unreadable == fresh budget" path.
+        path = tmp_path / "spend.json"
+        path.write_text('{"day": "2020-01-01", "total_usd": "not-a-number"}', encoding="utf-8")
+        assert SpendLedger(path=str(path), cap_usd=5.0).over_cap
+
+    def test_window_is_utc(self, tmp_path):
+        assert SpendLedger.today() == datetime.datetime.now(datetime.timezone.utc).strftime(
+            "%Y-%m-%d")
 
 
 if __name__ == "__main__":

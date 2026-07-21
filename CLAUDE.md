@@ -50,14 +50,32 @@ Any option, and any **two or more** options side by side, are reachable three wa
 clicking (the refine drawer's mode switch → option picker), or headlessly (`--compare`,
 `selectCompare`). No capability lives only behind the question box.
 
-**The agent service** (`service/`): `POST /ask {question}` routes a natural-language question via
-one `claude-opus-4-8` structured-output call, computes through direct `src/` imports, and returns
-the CLI `--json` payload shape. Spend is capped server-side via a gitignored ledger
-(`service/.spend.json`). Setup/run/error contract: `service/README.md`. Needs `ANTHROPIC_API_KEY`;
-the web page works fully without the service (that fallback is verifier-enforced).
+**The service** (`service/`) is one FastAPI app serving three things from one origin: the static
+page (`/`), the agent endpoint (`/ask`), and the MCP server (`/mcp`). Setup/run/error contract:
+`service/README.md`. Deploying it: `railway.toml` + `docs/deploy-handoff.md`.
+
+- `POST /ask {question}` routes a natural-language question via one `claude-opus-4-8`
+  structured-output call, computes through direct `src/` imports, and returns the CLI `--json`
+  payload shape. **The only path that spends money**, and it's bounded four ways: a *rolling
+  daily* spend cap (`service/.spend.json`, gitignored, fails closed on corrupt), a per-IP rate
+  limit keyed on the first `X-Forwarded-For` hop (behind a TLS proxy, `request.client.host` is the
+  proxy for every request — a bucket keyed on it throttles everyone as one client or nobody), a
+  question-length cap, and the input clamp below. Needs `ANTHROPIC_API_KEY`; the web page works
+  fully without the service (that fallback is verifier-enforced).
+- `/mcp` exposes the calculator as MCP tools (`list_options`, `get_assumptions`, `calculate`,
+  `compare`) with **no LLM on the path** — no key, no ledger, no cap. Public and unauthenticated by
+  decision (nothing to authorize; the reasoning is in `docs/deploy-handoff.md`).
+
+**`service/tools_core.py` is the single payload builder** — `/ask`, MCP, and the parity tests are
+its three callers. Don't add a second one: a human and an agent asking the same question must not
+get different numbers, and `test_tools_core.py` asserts every payload equals `src/cli.py --json`.
+The **input clamp** lives there so both surfaces inherit it: loop-driving overrides
+(`horizon_years`, `battery_horizon_years`) are bounded at 100 and **rejected, never silently
+clamped** — a rate limit bounds request frequency and does nothing about one `1e9`-year request.
 
 ```sh
-%USERPROFILE%\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe service\app.py   # run the service (port 8765)
+%USERPROFILE%\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe service\app.py            # page + /ask + /mcp (port 8765)
+%USERPROFILE%\claude_code_repos\my-uv-envs\solar-calc\Scripts\python.exe service\mcp_server.py --stdio   # MCP alone, no hosting
 ```
 
 ## Active metric — run before reporting any calculation change done
@@ -141,7 +159,8 @@ calculation.
 | `docs/BACKLOG.md` | Ideas captured, not scheduled — don't pull one in without a deliberate decision |
 | `docs/solutions/` | Lessons learned (e.g. verify the runtime before choosing a stack; judge-as-evidence, gate-stays-deterministic) |
 | `docs/design/` | Design decisions with their evidence — screenshots + drivable losing candidates (the 2026-07-20 layout bake-off) |
-| `service/README.md` | Agent service setup, run commands, spend cap, error contract |
+| `service/README.md` | Service setup, run commands, spend cap, MCP tools, error contract |
+| `docs/deploy-handoff.md` | The Railway deploy: what's built, what a human must set up, what to check |
 
 `docs/human_to_do.md` is human-only — do not read or reference it.
 

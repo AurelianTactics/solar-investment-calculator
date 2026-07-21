@@ -43,7 +43,11 @@ Ideas captured, not committed. Pulled from the original concept, `STRATEGY.md`, 
 ## Research & automation
 
 - Automated research bot — the eventual automated form of the `solar-investment-research` repo. Build only once the manual research path has been walked enough to know its shape.
-- MCP server exposing the calculator and/or research as tools.
+- ~~MCP server exposing the calculator and/or research as tools.~~ **Done (2026-07-20):** the
+  calculator half shipped — `list_options` / `get_assumptions` / `calculate` / `compare` over
+  `service/tools_core.py`, stdio locally and streamable HTTP at `/mcp` on the deploy, with no LLM
+  on the path (`service/mcp_server.py`; W5 of `docs/plans/2026-07-15-001-feat-poc-closeout-plan.md`).
+  Still open here: exposing the **research** repo as tools.
 
 ## Reach & adjacency
 
