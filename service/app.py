@@ -172,10 +172,13 @@ def ask(body: Ask, request: Request) -> dict:
     # LLM being down (or the cap being tripped) must not cost us — hence "unknown" rather than a
     # dropped line. Every question that reaches the agent is recorded, answered or not.
     meta = result.get("agent") or {}
+    # Prefer the answered payload's label; fall back to an error response's carried intent (an
+    # unanswerable/out_of_scope question was still classified), then to "unknown" (LLM down / cap).
+    intent = meta.get("intent") or result.get("intent") or "unknown"
     log.append("ask",
                ip=client_ip(request),
                question=question,
-               intent=meta.get("intent", "unknown"),
+               intent=intent,
                option=meta.get("option"),
                cached=meta.get("cached"),
                error=result.get("error"),

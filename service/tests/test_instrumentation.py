@@ -138,6 +138,26 @@ class TestAskLog:
         assert entry["intent"] == "unknown"
         assert "llm_error" in entry["error"]
 
+    def test_unanswerable_question_still_logs_its_intent(self, client, log, tmp_path):
+        """S2: an unanswerable question was still classified (usually out_of_scope) — the label the
+        feedback loop routes to the backlog. It must survive the error return, not read "unknown"
+        as if the model never ran. Still log-only: the unanswerable decision is ex.unanswerable,
+        never ex.intent."""
+        from agent import Agent, Extraction, cache_version
+        from cache import ExtractionCache
+        from spend import SpendLedger
+
+        oos = Extraction(option="rooftop", unanswerable=True, intent="out_of_scope", note="stub")
+        app_module._agent = Agent(
+            extractor=lambda q: oos,
+            ledger=SpendLedger(path=str(tmp_path / "oos.json"), cap_usd=5.0),
+            cache=ExtractionCache(path=str(tmp_path / "oosc.json"), version=cache_version()),
+        )
+        client.post("/ask", json={"question": "will a heat pump save me money"})
+        entry = lines(log, "ask")[0]
+        assert entry["intent"] == "out_of_scope"
+        assert entry["error"] == "unanswerable"
+
     def test_refused_questions_are_logged_too(self, client, log):
         client.post("/ask", json={"question": "x" * (app_module.MAX_QUESTION_CHARS + 1)})
         # Refused before the agent: no `ask` line to write, but the request itself is recorded.

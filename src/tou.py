@@ -1,4 +1,4 @@
-"""Time-of-use (time-of-use) arbitrage — the master equation and three-case branch, shared by the
+"""Time-of-use arbitrage — the master equation and three-case branch, shared by the
 installed battery (``battery.py``, optional ``tou_enrolled`` mode) and the plug-in DER battery
 (``plugin_battery.py``, where time-of-use arbitrage is the whole point).
 

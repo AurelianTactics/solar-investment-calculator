@@ -17,6 +17,8 @@
         * DONE don't use TOU abbrevation, use time of usage
         * DONE WITH REFINEMENT somewhere have to explain TOU arbitrage idea near the top. Maybe in the expand button a bit? I'm not sure where
             * maybe all the options should have a brief explanation on mouse over or expand. wouldn't hurt to have for this. This can be a sentence or two for most of them. Keep it high level and simple and use existing text fields / places. Don't make this more cluttered.
+
+* going through handoff doc, need to merge branch into master
 * review W4 and W5
     * REVIEW W4 (Railway)
     * REVIEW W5 MCP
@@ -28,7 +30,9 @@
     * plan written, review
     * docs/plans/2026-07-20-001-feat-minimal-user-feedback.md
     * work started on this
-    * review
+    * CE Review
+    * review implementation
+
 * when done with the plan, backlog and next ideas / future iterations
     * organize, what next steps would be, fun stuff to di etc
 

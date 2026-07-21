@@ -16,7 +16,7 @@ a few hundred $/yr at most; it does not flip the resilience-not-ROI verdict.
 Chain (every step returned for display):
   1. capacity & price -> gross system cost ($)
   2. federal credit   -> net upfront capital ($)
-  3. time-of-use mode         -> annual arbitrage value ($/yr; 0 unless tou_enrolled)
+  3. time-of-use mode -> annual arbitrage value ($/yr; 0 unless tou_enrolled)
   4. bill savings + arbitrage + resilience -> annual value ($)
   then annual value + net cost -> capital-allocation verdict via capital.compare over the
   expected ~13-yr service life (NOT the 10-yr warranty) with ~3%/yr LFP capacity fade.

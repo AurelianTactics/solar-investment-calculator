@@ -245,5 +245,14 @@ class Agent:
                     "detail": f"agent spend cap reached (${self.ledger.cap_usd:.2f})"}
         state = self._graph.invoke({"question": question})
         if state.get("error"):
-            return {"error": state["error"]}
+            out = {"error": state["error"]}
+            ex = state.get("extraction")
+            if ex is not None:
+                # The intent classification survives even when the question can't be answered — an
+                # unanswerable question was still routed AND labeled (usually out_of_scope), which
+                # is exactly the label the feedback loop wants. Surface it so /ask logs the real
+                # label rather than "unknown". Still log-only, never routed on: the unanswerable
+                # decision is ex.unanswerable, not ex.intent, so this adds no routing dependency.
+                out["intent"] = ex.intent
+            return out
         return state["payload"]

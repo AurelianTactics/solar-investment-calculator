@@ -123,8 +123,12 @@ class TestFollowup:
 class TestStructuredErrors:
     def test_unanswerable_returns_structured_refusal(self, tmp_path):
         agent = make_agent(tmp_path, stub("community", unanswerable=True))
-        assert make_agent(tmp_path, stub("community", unanswerable=True)).answer(
-            "what's the best chowder in Portland?") == {"error": "unanswerable"}
+        refusal = make_agent(tmp_path, stub("community", unanswerable=True)).answer(
+            "what's the best chowder in Portland?")
+        assert refusal["error"] == "unanswerable"
+        # The classified intent rides along on the refusal so /ask logs the real label rather than
+        # "unknown" — log-only, never routed on (the refusal is driven by unanswerable, not intent).
+        assert refusal["intent"] == "calculate"
         assert agent.answer("off topic")["error"] == "unanswerable"
 
     def test_llm_timeout_becomes_structured_error(self, tmp_path):
