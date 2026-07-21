@@ -25,6 +25,10 @@ pnpm-debug.log*
 # Web verification evidence (screenshots, drivers, hashed evidence record)
 .verify/
 
+# Playwright MCP scratch output (a11y snapshots / console logs from the /verify-web-page
+# perception loop; the durable verdict lives in .verify/perception.json, not here)
+.playwright-mcp/
+
 # Agent-service spend ledger (accumulated LLM cost; local state, never committed)
 service/.spend.json
 

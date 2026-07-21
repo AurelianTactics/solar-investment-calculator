@@ -104,7 +104,25 @@ hash). The gate itself stays deterministic and token-free — judgment happens d
 ```sh
 python tools/verify_web.py run      # browser loop: render + parity + fallback + screenshots + evidence
 python tools/verify_web.py check    # deterministic gate (what the Stop hook runs); exit 0 == verified
+python tools/verify_web.py run --page web/candidate.html   # drive a candidate page instead
 ```
+
+`--page` exists for design candidates (it drove the W3 layout bake-off). A non-default page writes
+its own `.verify/evidence-<slug>.json` + `screenshots/<slug>/` and **does not feed the Stop gate**:
+the gate hashes `web/index.html` + `web/app.js` only, so an exploratory candidate can never block a
+turn — nor falsely certify the live page it isn't.
+
+The live page's design system is documented in the comment at the top of `web/index.html`. It is a
+**ledger**: two families (IBM Plex Mono for numbers, Public Sans for labels), no serif, hue only on
+NPV sign and the three provenance tags. Density is the constraint — judge any change against
+`battery+rooftop` (25 assumptions, 9 steps) and the six-way compare, not the 4-row community
+default, which is where three very different layouts all looked fine. The bake-off that established
+this — screenshots, measured row pitches, and the losing candidates still drivable via `--page` —
+is in `docs/design/2026-07-20-layout-bakeoff/`.
+
+**A design judgement is evidence too.** When a change is decided by looking, the screenshots that
+decided it belong in `docs/design/`, not in scratch files that get cleaned up — same standard as a
+calculation.
 
 ## Canonical docs (read what's relevant before non-trivial work)
 
@@ -117,6 +135,7 @@ python tools/verify_web.py check    # deterministic gate (what the Stop hook run
 | `docs/brainstorms/` | Phase 1 spec (community-solar requirements) |
 | `docs/BACKLOG.md` | Ideas captured, not scheduled — don't pull one in without a deliberate decision |
 | `docs/solutions/` | Lessons learned (e.g. verify the runtime before choosing a stack; judge-as-evidence, gate-stays-deterministic) |
+| `docs/design/` | Design decisions with their evidence — screenshots + drivable losing candidates (the 2026-07-20 layout bake-off) |
 | `service/README.md` | Agent service setup, run commands, spend cap, error contract |
 
 `docs/human_to_do.md` is human-only — do not read or reference it.

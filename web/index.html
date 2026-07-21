@@ -4,282 +4,287 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Maine Solar Investment Calculator</title>
+<!--
+  THE LEDGER — this page's design system
+  ======================================
+  THESIS: this page is a financial statement, so set it as one. The transparency argument wants
+  austerity — and if the numbers are the only thing with color, color finally means something.
+
+  Two families, both utilitarian: IBM Plex Mono for every NUMBER, Public Sans for every LABEL.
+  No serif at all. The structural move is that the step chain and the assumption ledger become the
+  SAME visual object — a labeled row, a value, a provenance tag — because that is what they both
+  are. A reader who learns to scan one has learned to scan the other.
+
+  Hue budget: ink on paper, hairline rules, and hue in exactly two places — the sign of the NPV
+  (--pos/--neg) and the three assumption tags (--pos/--neg/--user). There is no decorative accent
+  at all; interactive affordance is carried by weight, rule, and inversion instead.
+
+  This layout won a three-way bake-off (the closeout plan's W3): three live pages sharing one
+  unmodified app.js, judged in the community, battery+rooftop, and six-way compare states. The
+  editorial and product candidates both read well on the sparse community default and then broke
+  where it counts — the editorial one fit only ~7 of battery+rooftop's 25 assumption rows on a
+  screen, and the product one's two-column top squeezed the 6x5 comparison table into a 440px
+  column while its other column sat empty. This one fit 12 rows a screen and the whole comparison
+  above the fold.
+
+  So: DENSITY IS THE CONSTRAINT, not decoration. The states that decide whether a change is good
+  are battery+rooftop (25 assumptions, 9 steps) and the six-way compare — NOT the four-row
+  community default, where all three candidates looked fine. If you are about to add a third font,
+  a decorative accent, or a card shadow, that is the finding you would be undoing.
+-->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --paper:#f4eddf; --paper-2:#ece2cf; --card:#fffdf7;
-    --ink:#1f261d; --ink-soft:#3c4337; --muted:#79715f;
-    --rule:#ddd1b8; --rule-strong:#c8b994;
-    --sun:#bf7a13; --sun-soft:#e6a23c;
-    --pine:#2d6a4d; --pine-bg:#e6efe5; --pine-bd:#bcd6c2;
-    --clay:#a8481c; --clay-bg:#f5e4d4; --clay-bd:#e2bd99;
-    --sky:#2c5c7c; --sky-bg:#e1eaf0; --sky-bd:#b6cbd9;
-    --shadow:0 1px 0 rgba(31,38,29,.04), 0 18px 40px -28px rgba(31,38,29,.45);
+    --paper:#fbfbfa; --paper-2:#f2f2ef; --paper-3:#e8e8e4;
+    --ink:#16181a; --ink-soft:#41454a; --muted:#787d84;
+    --rule:#e2e2de; --rule-strong:#b9bbb6;
+    /* Hue lives here and nowhere else: NPV sign + the three provenance tags. */
+    --pos:#1d6b45; --neg:#a33718; --user:#1f5b8f;
   }
-  * { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; }
-  body {
-    margin:0; color:var(--ink);
-    font:400 16px/1.6 "Public Sans", system-ui, sans-serif;
-    background:
-      radial-gradient(900px 420px at 88% -8%, rgba(230,162,60,.28), transparent 60%),
-      radial-gradient(700px 500px at -10% 8%, rgba(45,106,77,.10), transparent 55%),
-      var(--paper);
-    background-attachment: fixed;
-  }
-  /* faint paper grain */
-  body::before {
-    content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.5;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.04'/%3E%3C/svg%3E");
-  }
-  .wrap { position:relative; z-index:1; max-width:760px; margin:0 auto; padding:40px 20px 80px; }
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body { margin:0; background:var(--paper); color:var(--ink);
+    font:400 15px/1.6 "Public Sans", system-ui, sans-serif; }
+  .wrap { max-width:840px; margin:0 auto; padding:34px 20px 80px; }
 
-  /* ---- masthead ---- */
-  .masthead { position:relative; padding-bottom:18px; margin-bottom:26px;
-    border-bottom:3px double var(--rule-strong); }
-  .kicker { font:600 12px/1 "Public Sans", sans-serif; letter-spacing:.22em;
-    text-transform:uppercase; color:var(--sun); margin:0 0 12px; }
-  h1 { font-family:"Fraunces", Georgia, serif; font-weight:600; font-optical-sizing:auto;
-    font-size:clamp(2.1rem, 6vw, 3.2rem); line-height:1.02; letter-spacing:-.015em;
-    margin:0; color:var(--ink); }
-  h1 em { font-style:italic; color:var(--sun); }
-  .sun-mark { position:absolute; top:-6px; right:0; width:60px; height:60px; border-radius:50%;
-    background:radial-gradient(circle at 50% 45%, var(--sun-soft), var(--sun));
-    box-shadow:0 0 0 6px rgba(230,162,60,.16), 0 0 36px rgba(230,162,60,.5); }
-  @media (max-width:560px){ .sun-mark{ width:40px; height:40px; top:0; } }
+  /* Every number on the page, one declaration. */
+  .big, .step-val, .cmp-table td, input[type=number], .sec-tail, .num {
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums; }
 
-  /* ---- cards ---- */
-  .card { background:var(--card); border:1px solid var(--rule);
-    border-radius:14px; padding:22px; margin:18px 0; box-shadow:var(--shadow); }
-  .card-label { font:600 12px/1 "Public Sans", sans-serif; letter-spacing:.16em;
-    text-transform:uppercase; color:var(--muted); margin:0 0 12px; }
+  /* ---- masthead: a statement header ---- */
+  .masthead { display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+    padding-bottom:12px; margin-bottom:22px; border-bottom:2px solid var(--ink); }
+  h1 { font:700 1.5rem/1 "Public Sans", sans-serif; letter-spacing:-.01em; margin:0; }
+  .kicker { font:500 10px/1 "IBM Plex Mono", monospace; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--muted); margin:0; }
 
-  label { display:block; font-weight:600; margin-bottom:7px; color:var(--ink); }
-  .hint { color:var(--muted); font-weight:400; font-size:.86rem; }
+  /* ---- the ask row ---- */
+  .ask-block { border:1px solid var(--rule-strong); background:#fff; padding:16px 18px; }
+  .askrow { display:flex; gap:12px; align-items:stretch; }
+  /* min-height carries the LONGEST sentence questionFromState() generates — the six-way compare
+     ("Compare A vs B vs C vs D vs E vs F on a $168.41 monthly bill.") wraps to four lines at this
+     width. Any shorter and the box scrollbars the page's own generated text, which is a bad look
+     for a box whose whole job is to always agree with the headline. */
+  #question { flex:1; background:var(--paper-2); color:var(--ink); resize:none;
+    border:1px solid var(--rule-strong); border-radius:0; padding:10px 12px; min-height:94px;
+    font:400 1rem/1.4 "Public Sans", sans-serif; }
+  #question:focus-visible { outline:none; border-color:var(--ink); }
+  #ask { align-self:stretch; background:var(--ink); color:var(--paper); border:1px solid var(--ink);
+    border-radius:0; padding:0 22px; cursor:pointer; white-space:nowrap;
+    font:600 .85rem "Public Sans", sans-serif; letter-spacing:.08em; text-transform:uppercase; }
+  #ask:hover { background:var(--ink-soft); }
+  .samples { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+  button.sample, button.linkbtn { background:none; color:var(--ink-soft);
+    border:1px solid var(--rule-strong); border-radius:0; padding:5px 10px; margin:0; cursor:pointer;
+    font:400 .8rem "Public Sans", sans-serif; }
+  button.sample:hover, button.linkbtn:hover { background:var(--ink); color:var(--paper);
+    border-color:var(--ink); }
+  button.linkbtn { border-style:dashed; }
 
-  /* ---- the question box: ask the almanac ---- */
-  .askrow { display:flex; gap:10px; align-items:stretch; }
-  #question {
-    flex:1; background:var(--paper); color:var(--ink); resize:none;
-    border:none; border-bottom:2px solid var(--rule-strong); border-radius:0;
-    padding:10px 4px 12px; min-height:64px;
-    font-family:"Fraunces", Georgia, serif; font-weight:500; font-style:italic;
-    font-size:1.25rem; line-height:1.35;
-  }
-  #question:focus-visible { outline:none; border-bottom-color:var(--sun); }
-  #ask {
-    align-self:flex-end; background:var(--ink); color:var(--paper);
-    border:1px solid var(--ink); border-radius:10px; padding:12px 20px; cursor:pointer;
-    font:600 .95rem "Public Sans", sans-serif; letter-spacing:.02em; white-space:nowrap;
-    transition:transform .12s ease, box-shadow .12s ease;
-  }
-  #ask:hover { transform:translateY(-1px); box-shadow:0 8px 18px -10px rgba(31,38,29,.6); }
-  .samples { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
-  button.sample {
-    background:var(--paper-2); color:var(--ink-soft); border:1px solid var(--rule-strong);
-    border-radius:999px; padding:7px 14px; cursor:pointer; margin:0;
-    font:500 .82rem "Public Sans", sans-serif;
-    transition:border-color .12s ease, color .12s ease;
-  }
-  button.sample:hover { border-color:var(--sun); color:var(--sun); transform:none; box-shadow:none; }
-  /* The scenario link (R8b) sits with the samples but is an action, not a question — dashed so
-     it reads as "do something with this view" rather than "ask me". */
-  button.linkbtn {
-    background:transparent; color:var(--muted); border:1px dashed var(--rule-strong);
-    border-radius:999px; padding:7px 14px; cursor:pointer; margin:0;
-    font:500 .82rem "Public Sans", sans-serif;
-    transition:border-color .12s ease, color .12s ease;
-  }
-  button.linkbtn:hover { border-color:var(--sky); color:var(--sky); transform:none; box-shadow:none; }
-
-  /* ---- notices ---- */
-  #notice { display:none; background:var(--sky-bg); color:var(--sky);
-    border:1.5px solid var(--sky-bd); border-left:4px solid var(--sky);
-    border-radius:10px; padding:12px 16px; margin:18px 0 0; font-weight:500; }
+  #notice { display:none; margin:14px 0 0; padding:9px 12px; background:var(--paper-2);
+    border-left:3px solid var(--ink); font-size:.88rem; color:var(--ink-soft); }
   #notice.show { display:block; }
-  #parity-banner { display:none; background:var(--clay-bg); color:var(--clay);
-    border:1.5px solid var(--clay-bd); border-left:4px solid var(--clay);
-    border-radius:10px; padding:12px 16px; margin-bottom:18px; font-weight:500; }
-
-  /* ---- refine drawer ---- */
-  details.refine { margin:18px 0 0; }
-  details.refine > summary { cursor:pointer; color:var(--sun); font-weight:600; font-size:.95rem;
-    list-style:none; display:inline-flex; align-items:center; gap:6px; }
-  details.refine > summary::-webkit-details-marker { display:none; }
-  details.refine > summary::before { content:"✎"; font-size:1rem; }
-  details.refine[open] > summary::before { content:"–"; font:600 1.1rem "IBM Plex Mono", monospace; }
-  .refine-body { background:var(--card); border:1px solid var(--rule); border-radius:14px;
-    padding:20px 22px; margin-top:12px; box-shadow:var(--shadow); }
-
-  /* ---- mode switch: one option, or several side by side ---- */
-  .mode-switch { display:inline-flex; margin:0 0 20px; background:var(--paper);
-    border:1.5px solid var(--rule-strong); border-radius:10px; overflow:hidden; }
-  button.mode { background:none; color:var(--ink-soft); border:none; border-radius:0; margin:0;
-    padding:9px 16px; cursor:pointer; font:600 .84rem "Public Sans", sans-serif;
-    letter-spacing:.05em; text-transform:uppercase; transition:color .12s ease; }
-  button.mode + button.mode { border-left:1.5px solid var(--rule-strong); }
-  button.mode:hover { transform:none; box-shadow:none; color:var(--sun); }
-  button.mode.active { background:var(--ink); color:var(--paper); }
-
-  /* ---- shared inputs (drive every compared option) vs. per-option ledgers ---- */
-  .shared-head { margin:24px 0 3px; padding-top:18px; border-top:2px solid var(--rule-strong); }
-  .shared-note { color:var(--muted); font-size:.85rem; margin:0; line-height:1.5; }
-  .usage-meta { margin-top:9px; }
-  details.opt-sec { border-top:1px solid var(--rule); }
-  details.opt-sec:first-of-type { border-top:2px solid var(--rule-strong); }
-  details.opt-sec > summary { cursor:pointer; list-style:none; display:flex; align-items:baseline;
-    gap:9px; padding:15px 2px; font-family:"Fraunces", Georgia, serif; font-weight:600;
-    font-size:1.06rem; color:var(--ink); }
-  details.opt-sec > summary::-webkit-details-marker { display:none; }
-  details.opt-sec > summary::before { content:"+"; font:600 1.05rem "IBM Plex Mono", monospace;
-    color:var(--sun); }
-  details.opt-sec[open] > summary::before { content:"–"; }
-  details.opt-sec > summary:hover { color:var(--sun); }
-  .sec-tail { margin-left:auto; font:500 .8rem "IBM Plex Mono", monospace; color:var(--muted);
-    font-variant-numeric:tabular-nums; }
-  .sec-body { padding:0 0 20px 2px; }
-  .sec-body > h3:first-child { margin-top:0; }
-
-  .toggles { display:flex; flex-wrap:wrap; gap:9px; margin:4px 0 4px; }
-  button.toggle {
-    background:var(--paper); color:var(--ink-soft); border:1.5px solid var(--rule-strong);
-    border-radius:9px; padding:10px 16px; cursor:pointer; margin:0;
-    font:600 .88rem "Public Sans", sans-serif; letter-spacing:.05em; text-transform:uppercase;
-    transition:all .12s ease;
-  }
-  button.toggle:hover { border-color:var(--sun); color:var(--sun); transform:none; box-shadow:none; }
-  button.toggle.active { background:var(--ink); color:var(--paper); border-color:var(--ink); }
-  .toggle-hint { margin-top:8px; }
-
-  input[type=number] {
-    background:var(--card); color:var(--ink); border:1.5px solid var(--rule-strong);
-    border-radius:9px; padding:9px 11px; font:500 1rem "IBM Plex Mono", monospace; width:150px;
-  }
-  input:focus-visible { outline:2px solid var(--sun); outline-offset:1px; }
-  .billrow input { font-size:1.4rem; width:180px; padding:11px 13px; }
-  .opt { margin-top:16px; } .opt label { font-weight:600; font-size:.92rem; }
-  .opt input { width:min(240px, 100%); }
-  #bill-row { margin-top:16px; }
-
-  /* ---- result headline: sticky, so refining below always shows the number move ---- */
-  #result { position:sticky; top:10px; z-index:5; padding:14px 22px 16px;
-    border-color:var(--rule-strong);
-    box-shadow:0 1px 0 rgba(31,38,29,.04), 0 14px 34px -20px rgba(31,38,29,.5); }
-  .headline { text-align:center; padding:0; }
-  .big { font-family:"Fraunces", Georgia, serif; font-weight:600;
-    font-size:clamp(2rem, 6.5vw, 2.9rem); line-height:1; color:var(--pine);
-    font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
-  .big span { font-family:"Public Sans", sans-serif; font-size:1rem; color:var(--muted);
-    font-weight:600; letter-spacing:.02em; margin-left:8px; }
-  .sub { color:var(--ink-soft); margin-top:8px; font-size:.95rem; }
-  .sub strong { color:var(--ink); }
-  .npv-what { background:none; border:none; padding:0; margin-left:4px; cursor:pointer;
-    color:var(--sun); font:600 .82rem "Public Sans", sans-serif;
-    text-decoration:underline dotted; text-underline-offset:3px; }
-  .npv-what:focus-visible { outline:2px solid var(--sun); outline-offset:2px; border-radius:3px; }
-  .npv-def { margin:8px auto 0; max-width:560px; text-align:left; font-size:.84rem;
-    line-height:1.5; color:var(--ink-soft); background:var(--paper-2);
-    border:1px solid var(--rule); border-radius:8px; padding:9px 12px; }
-  .headline .card-label { margin-bottom:8px; }
-  .context { color:var(--muted); font-size:.84rem; margin-top:9px; line-height:1.5; }
-  .context em { color:var(--clay); font-style:normal; font-weight:600; }
-
-  /* ---- side-by-side comparison (live view: rows recompute from the shared inputs) ---- */
-  .cmp-wrap { overflow-x:auto; margin-top:4px; }
-  table.cmp-table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
-  .cmp-table th { font:600 11px/1.3 "Public Sans", sans-serif; letter-spacing:.14em;
-    text-transform:uppercase; color:var(--muted); text-align:right; padding:6px 10px;
-    border-bottom:2px solid var(--rule-strong); white-space:nowrap; }
-  .cmp-table th:first-child { text-align:left; }
-  .cmp-table td { padding:9px 10px; border-bottom:1px solid var(--rule); text-align:right;
-    font:500 .88rem "IBM Plex Mono", monospace; white-space:nowrap; }
-  .cmp-table td.opt-name { text-align:left; font:600 .9rem "Public Sans", sans-serif;
-    color:var(--ink); white-space:normal; }
-  .cmp-table tbody tr { cursor:pointer; }
-  .cmp-table tbody tr:hover td { background:var(--paper-2); }
-  .cmp-table tbody tr.focus td { background:var(--pine-bg); }
-  .cmp-pos { color:var(--pine); font-weight:600; }
-  .cmp-neg { color:var(--clay); font-weight:600; }
-  .cmp-err { color:var(--clay); font-family:"Public Sans", sans-serif; white-space:normal; }
-  .cmp-mark { color:var(--sky); font-size:.85em; }
-  .cmp-note { text-align:left; }
-  button.cmp-exit { background:none; border:none; color:var(--sun); cursor:pointer;
-    font:600 .82rem "Public Sans", sans-serif; padding:0; margin-top:10px;
-    text-decoration:underline dotted; text-underline-offset:3px; }
-  button.cmp-exit:hover { transform:none; box-shadow:none; }
-
-  h3 { font-family:"Fraunces", Georgia, serif; font-weight:600; font-size:1.18rem;
-    margin:26px 0 12px; color:var(--ink); }
-  h3 .hint { font-family:"Public Sans", sans-serif; font-weight:400; }
-  #detail > h3:first-child { margin-top:0; }
-
-  /* ---- the ledger of steps ---- */
-  ol.steps { list-style:none; counter-reset:step; padding:0; margin:0; }
-  ol.steps li { counter-increment:step; position:relative;
-    padding:14px 0 14px 42px; border-top:1px solid var(--rule); }
-  ol.steps li:first-child { border-top:none; }
-  ol.steps li::before { content:counter(step, decimal-leading-zero);
-    position:absolute; left:0; top:15px; font:600 .8rem "IBM Plex Mono", monospace;
-    color:var(--sun); background:var(--paper); border:1px solid var(--rule-strong);
-    border-radius:6px; width:28px; height:24px; display:grid; place-items:center; }
-  .step-label { font-weight:600; color:var(--ink); }
-  code { display:inline-block; margin:6px 0; background:var(--paper-2);
-    border:1px solid var(--rule); border-radius:7px; padding:3px 9px;
-    font:.82rem/1.5 "IBM Plex Mono", monospace; color:var(--ink-soft); }
-  .step-val { font:600 1.05rem "IBM Plex Mono", monospace; color:var(--pine);
-    font-variant-numeric:tabular-nums; }
-  .unit { color:var(--muted); font-size:.78rem; font-weight:500; }
-
-  /* ---- assumptions ledger ---- */
-  .assumptions { display:grid; gap:0; }
-  .assumption { border-top:1px solid var(--rule); padding:16px 0; }
-  .assumption:first-child { border-top:2px solid var(--rule-strong); }
-  .assumption label { font-weight:600; margin-bottom:9px; }
-  .arow { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
-  .tag { font:600 .68rem/1 "Public Sans", sans-serif; letter-spacing:.04em;
-    text-transform:uppercase; padding:4px 9px; border-radius:999px; white-space:nowrap; }
-  .tag-sourced  { background:var(--pine-bg); color:var(--pine); border:1px solid var(--pine-bd); }
-  .tag-unsourced{ background:var(--clay-bg); color:var(--clay); border:1px solid var(--clay-bd); }
-  .tag-user     { background:var(--sky-bg);  color:var(--sky);  border:1px solid var(--sky-bd); }
-  .src { font-size:.84rem; color:var(--muted); margin-top:8px; line-height:1.5; }
-  .src a { color:var(--sky); text-underline-offset:2px; }
-  .src.warn { color:var(--clay); font-weight:500; }
-
-  details.why { margin-top:9px; }
-  details.why > summary { cursor:pointer; color:var(--sun); font-weight:600; font-size:.82rem;
-    list-style:none; display:inline-flex; align-items:center; gap:5px; }
-  details.why > summary::-webkit-details-marker { display:none; }
-  details.why > summary::before { content:"+"; font:600 1rem "IBM Plex Mono", monospace; }
-  details.why[open] > summary::before { content:"–"; }
-  .deep { background:var(--paper-2); border:1px solid var(--rule); border-radius:9px;
-    padding:12px 15px; margin-top:8px; font-size:.9rem; line-height:1.6; color:var(--ink-soft); }
-  .deep p { margin:0 0 9px; } .deep p:last-child { margin-bottom:0; }
-
-  /* ---- tighter-estimate tip (R5) — lives right under the Ask box ---- */
-  .followup { background:var(--pine-bg); border:1px solid var(--pine-bd);
-    border-left:4px solid var(--pine); border-radius:10px; padding:13px 16px;
-    margin-top:16px; font-size:.92rem; color:var(--ink-soft); }
-  .followup strong { color:var(--pine); }
+  #parity-banner:not(:empty) { margin:0 0 18px; padding:10px 13px; color:var(--neg);
+    border:1px solid var(--neg); font-weight:600; }
+  .followup { margin:14px 0 0; padding:9px 12px; background:var(--paper-2);
+    border-left:3px solid var(--rule-strong); font-size:.88rem; color:var(--ink-soft); }
+  .followup strong { color:var(--ink); }
   .followup .eg { font-style:italic; }
 
-  /* ---- buttons ---- */
-  button {
-    background:var(--ink); color:var(--paper); border:1px solid var(--ink);
-    border-radius:10px; padding:11px 18px; cursor:pointer; margin-top:20px;
-    font:600 .92rem "Public Sans", sans-serif; letter-spacing:.02em;
-    transition:transform .12s ease, box-shadow .12s ease;
-  }
-  button:hover { transform:translateY(-1px); box-shadow:0 8px 18px -10px rgba(31,38,29,.6); }
-  button:active { transform:translateY(0); }
+  /* ---- the statement line: the estimate as the top line of a ledger ---- */
+  #result { margin-top:18px; padding:18px 20px; background:#fff;
+    border:1px solid var(--rule-strong); border-top:3px solid var(--ink); }
+  .card-label { font:500 10px/1 "IBM Plex Mono", monospace; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 12px; }
+  .big { font-weight:600; font-size:clamp(2rem, 7vw, 3rem); line-height:1; letter-spacing:-.03em; }
+  .big span { font-family:"Public Sans", sans-serif; font-size:.85rem; font-weight:600;
+    color:var(--muted); margin-left:10px; letter-spacing:.04em; text-transform:uppercase; }
+  .sub { margin-top:10px; color:var(--ink-soft); font-size:.9rem; }
+  .sub strong { color:var(--ink); }
+  .npv-what { background:none; border:1px solid var(--rule-strong); border-radius:0;
+    padding:2px 7px; margin-left:6px; cursor:pointer; color:var(--ink-soft);
+    font:500 .74rem "Public Sans", sans-serif; }
+  .npv-what:hover { border-color:var(--ink); color:var(--ink); }
+  .npv-what:focus-visible { outline:2px solid var(--ink); outline-offset:1px; }
+  .npv-def { margin-top:11px; padding:10px 12px; background:var(--paper-2);
+    font-size:.84rem; line-height:1.55; color:var(--ink-soft); }
+  .context { margin-top:11px; padding-top:10px; border-top:1px solid var(--rule);
+    color:var(--muted); font-size:.82rem; line-height:1.5; }
+  .context em { color:var(--user); font-style:normal; font-weight:600; }
 
-  footer { color:var(--muted); font-size:.82rem; line-height:1.6; margin-top:34px;
-    padding-top:18px; border-top:3px double var(--rule-strong); }
-  footer a { color:var(--sky); text-underline-offset:2px; }
-  footer .poc { margin:0 0 12px; }
-  footer .poc strong { color:var(--ink-soft); }
-  footer em { color:var(--clay); font-style:normal; font-weight:600; }
+  /* ---- refine ---- */
+  details.refine { margin-top:18px; }
+  details.refine > summary { cursor:pointer; list-style:none; padding:11px 14px; background:#fff;
+    border:1px solid var(--rule-strong);
+    font:600 .82rem "Public Sans", sans-serif; letter-spacing:.08em; text-transform:uppercase; }
+  details.refine > summary::-webkit-details-marker { display:none; }
+  /* Decorative disclosure markers carry EMPTY ALT TEXT (the `content: X / ""` form): the glyph
+     still paints, but the accessibility tree stops reading it. Without the alt, a closed drawer
+     shows up in an a11y snapshot as stray "[+] [+] [+] [+]" — noise for a screen reader, and
+     noise in the very snapshot /verify-web-page judges this page by. */
+  details.refine > summary::before { content:"▸ " / ""; }
+  details.refine[open] > summary::before { content:"▾ " / ""; }
+  .refine-body { background:#fff; border:1px solid var(--rule-strong); border-top:none;
+    padding:20px 18px; }
+  #detail { background:#fff; border:1px solid var(--rule-strong); border-top:none;
+    padding:20px 18px; }
+
+  h3 { font:600 .82rem "Public Sans", sans-serif; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--muted); margin:26px 0 0; padding-bottom:7px; border-bottom:2px solid var(--ink); }
+  h3 .hint { letter-spacing:0; text-transform:none; font-weight:400; }
+  #detail > h3:first-child { margin-top:0; }
+  .hint { color:var(--muted); font-weight:400; font-size:.83rem; }
+  label { display:block; font-weight:600; margin-bottom:6px; font-size:.9rem; }
+
+  /* ---- controls ---- */
+  .mode-switch { display:inline-flex; margin:0 0 18px; border:1px solid var(--ink); }
+  button.mode { background:none; color:var(--ink-soft); border:none; border-radius:0; margin:0;
+    padding:8px 15px; cursor:pointer;
+    font:600 .76rem "IBM Plex Mono", monospace; letter-spacing:.06em; text-transform:uppercase; }
+  button.mode + button.mode { border-left:1px solid var(--ink); }
+  button.mode.active { background:var(--ink); color:var(--paper); }
+
+  /* inline-flex so the strip's border HUGS the buttons. As a block-level flex it drew a rule out
+     to the full container width with dead space after the last option, which reads as a broken
+     segmented control rather than a deliberate one. */
+  .toggles { display:inline-flex; flex-wrap:wrap; gap:0; margin:4px 0; max-width:100%;
+    border:1px solid var(--rule-strong); }
+  button.toggle { background:none; color:var(--ink-soft); border:none; border-radius:0;
+    border-right:1px solid var(--rule-strong); padding:9px 14px; margin:0; cursor:pointer;
+    font:500 .8rem "IBM Plex Mono", monospace; }
+  button.toggle:last-child { border-right:none; }
+  button.toggle:hover { background:var(--paper-2); color:var(--ink); }
+  button.toggle.active { background:var(--ink); color:var(--paper); }
+  .toggle-hint { margin-top:9px; }
+  #compare-toggles:empty { border:none; }
+
+  input[type=number] { background:var(--paper); color:var(--ink); border:1px solid var(--rule-strong);
+    border-radius:0; padding:7px 9px; width:130px; font-size:.95rem; font-weight:500; }
+  input[type=number]:focus-visible { outline:none; border-color:var(--ink); box-shadow:inset 0 0 0 1px var(--ink); }
+  .billrow input { font-size:1.25rem; width:160px; }
+  /* Wide enough for its "estimate from bill" placeholder — at the shared 130px it truncated to
+     "estimate f;", which reads as a rendering fault rather than a hint. */
+  #annual-usage { width:min(220px, 100%); }
+  .opt { margin-top:16px; }
+  #bill-row { margin-top:16px; }
+  .shared-head { margin:24px 0 3px; padding-top:16px; border-top:2px solid var(--ink); }
+  .shared-note { color:var(--muted); font-size:.83rem; margin:0; }
+  .usage-meta { margin-top:8px; }
+
+  /* ---- THE LEDGER ROW: one object, two uses ------------------------------------------
+     A step and an assumption are the same shape — label left, value right, provenance under.
+     Same padding, same hairline, same tabular value column. Scanning one teaches the other. */
+  ol.steps { list-style:none; counter-reset:step; padding:0; margin:0; }
+  ol.steps li { counter-increment:step; display:grid;
+    grid-template-columns:2.2rem minmax(0,1fr) auto; gap:4px 12px; align-items:baseline;
+    padding:11px 0; border-bottom:1px solid var(--rule); }
+  ol.steps li::before { content:counter(step, decimal-leading-zero); grid-row:1;
+    font:500 .78rem "IBM Plex Mono", monospace; color:var(--muted); }
+  .step-label { grid-column:2; font-weight:600; font-size:.92rem; }
+  .step-val { grid-column:3; grid-row:1; text-align:right; font-weight:600; font-size:1rem;
+    white-space:nowrap; }
+  code { grid-column:2 / -1; display:block; background:var(--paper-2); padding:3px 7px;
+    font:400 .78rem/1.5 "IBM Plex Mono", monospace; color:var(--muted); }
+  .unit { color:var(--muted); font-size:.72rem; font-weight:500;
+    font-family:"Public Sans", sans-serif; }
+
+  .assumptions { display:grid; gap:0; }
+  .assumption { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 12px;
+    align-items:baseline; padding:11px 0; border-bottom:1px solid var(--rule); }
+  .assumption label { grid-column:1; margin:0; font-size:.92rem; }
+  /* The value column is a real COLUMN: fixed tracks, so the input, the unit, and the tag land at
+     the same x on every row. Laying these out with flex + justify-content:end instead sizes the
+     row to its own content, so a long unit ("kWh/kW/yr") shoves that row's input left of its
+     neighbours' and the ledger visibly jitters down the page — which is the one thing a layout
+     arguing "this page is a financial statement" cannot afford. */
+  .arow { grid-column:2; grid-row:1; display:grid;
+    grid-template-columns:7rem 4.5rem 11rem; align-items:center; gap:9px; }
+  .arow input[type=number] { width:100%; text-align:right; }
+  .arow .tag { justify-self:start; }
+  .tag { font:600 .64rem/1 "Public Sans", sans-serif; letter-spacing:.05em; text-transform:uppercase;
+    padding:3px 6px; border-radius:0; white-space:nowrap; border:1px solid currentColor; }
+  .tag-sourced { color:var(--pos); }
+  .tag-unsourced { color:var(--neg); }
+  .tag-user { color:var(--user); }
+  .src { grid-column:1 / -1; font-size:.82rem; color:var(--muted); line-height:1.5; }
+  .src a { color:var(--user); }
+  .src.warn { color:var(--neg); font-weight:500; }
+  details.why { grid-column:1 / -1; margin-top:4px; }
+  details.why > summary { cursor:pointer; color:var(--ink-soft); font-weight:600; font-size:.78rem;
+    list-style:none; }
+  details.why > summary::-webkit-details-marker { display:none; }
+  details.why > summary::before { content:"[+] " / ""; font-family:"IBM Plex Mono", monospace; }
+  details.why[open] > summary::before { content:"[–] " / ""; }
+  details.why > summary:hover { color:var(--ink); }
+  .deep { margin-top:8px; padding:11px 13px; background:var(--paper-2); font-size:.86rem;
+    line-height:1.6; color:var(--ink-soft); }
+  .deep p { margin:0 0 8px; } .deep p:last-child { margin-bottom:0; }
+
+  /* ---- per-option sections ---- */
+  details.opt-sec { border-bottom:1px solid var(--rule); }
+  details.opt-sec > summary { cursor:pointer; list-style:none; display:flex; align-items:baseline;
+    gap:9px; padding:12px 0; font:600 .95rem "Public Sans", sans-serif; }
+  details.opt-sec > summary::-webkit-details-marker { display:none; }
+  details.opt-sec > summary::before { content:"▸" / ""; color:var(--muted); }
+  details.opt-sec[open] > summary::before { content:"▾" / ""; }
+  .sec-tail { margin-left:auto; font-size:.78rem; font-weight:500; color:var(--muted); }
+  .sec-body { padding:0 0 18px; }
+  .sec-body > h3:first-child { margin-top:0; }
+
+  /* ---- comparison: the statement's summary table ---- */
+  .cmp-wrap { overflow-x:auto; margin-top:6px; }
+  table.cmp-table { width:100%; border-collapse:collapse; }
+  .cmp-table th { font:600 10px/1.3 "Public Sans", sans-serif; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--muted); text-align:right; padding:7px 11px;
+    border-bottom:2px solid var(--ink); white-space:nowrap; }
+  .cmp-table th:first-child { text-align:left; padding-left:0; }
+  .cmp-table td { padding:10px 11px; border-bottom:1px solid var(--rule); text-align:right;
+    font-size:.86rem; font-weight:500; white-space:nowrap; }
+  .cmp-table td.opt-name { text-align:left; padding-left:0; white-space:normal;
+    font-family:"Public Sans", sans-serif; font-weight:600; }
+  .cmp-table tbody tr { cursor:pointer; }
+  .cmp-table tbody tr:hover td { background:var(--paper-2); }
+  .cmp-table tbody tr.focus td { background:var(--paper-3); }
+  .cmp-pos { color:var(--pos); font-weight:600; }
+  .cmp-neg { color:var(--neg); font-weight:600; }
+  .cmp-err { color:var(--neg); white-space:normal; font-family:"Public Sans", sans-serif; }
+  .cmp-mark { color:var(--user); font-size:.85em; }
+  .cmp-note { text-align:left; }
+  button.cmp-exit { background:none; color:var(--ink-soft); border:1px solid var(--rule-strong);
+    border-radius:0; padding:6px 12px; margin-top:14px; cursor:pointer;
+    font:500 .8rem "Public Sans", sans-serif; }
+  button.cmp-exit:hover { border-color:var(--ink); color:var(--ink); }
+
+  #reset { background:none; color:var(--ink-soft); border:1px solid var(--rule-strong);
+    border-radius:0; padding:8px 14px; margin-top:22px; cursor:pointer;
+    font:600 .78rem "Public Sans", sans-serif; letter-spacing:.06em; text-transform:uppercase; }
+  #reset:hover { border-color:var(--ink); color:var(--ink); }
+
+  footer { color:var(--muted); font-size:.8rem; line-height:1.6; margin-top:36px; padding-top:16px;
+    border-top:2px solid var(--ink); }
+  footer a { color:var(--user); }
+  footer .poc { margin:0 0 10px; }
+  footer .poc strong { color:var(--ink); }
+  footer em { color:var(--neg); font-style:normal; font-weight:600; }
+
+  @media (max-width:560px) {
+    .askrow { flex-direction:column; }
+    #ask { padding:11px 22px; }
+    .toggles { flex-direction:column; }
+    button.toggle { border-right:none; border-bottom:1px solid var(--rule-strong); text-align:left; }
+    button.toggle:last-child { border-bottom:none; }
+    ol.steps li { grid-template-columns:2.2rem minmax(0,1fr); }
+    .step-val { grid-column:2; grid-row:auto; text-align:left; }
+    /* The fixed value tracks don't fit beside the label on a phone; stack instead of overflowing. */
+    .assumption { grid-template-columns:minmax(0,1fr); }
+    .arow { grid-column:1; grid-row:auto; grid-template-columns:6rem auto minmax(0,1fr);
+      justify-content:start; }
+    /* "unsourced - pending research" is wider than a phone's tag column; let it wrap rather than
+       push the whole page into a sideways scroll. */
+    .tag { white-space:normal; }
+  }
 </style>
 </head>
 <body>
@@ -287,17 +292,14 @@
   <div id="parity-banner"></div>
 
   <header class="masthead">
-    <div class="sun-mark" aria-hidden="true"></div>
-    <p class="kicker">Maine · Residential Solar</p>
     <h1>Solar Options</h1>
+    <p class="kicker">Maine · Residential</p>
   </header>
 
-  <div class="card">
+  <div class="ask-block">
     <div class="askrow">
-      <!-- The landing text is the sentence questionFromState() generates for the default state,
-           at the sourced $168.41 Maine average the page actually computes with. It used to say
-           $150 while the headline said $168.41 — the box-vs-headline contradiction the state↔text
-           sync exists to kill. Keep the two in step if either changes. -->
+      <!-- Landing text = the sentence questionFromState() generates for the default state, at the
+           sourced $168.41 average the page actually computes with. Keep the two in step. -->
       <textarea id="question" rows="2" aria-label="Your solar question">Estimate community solar on a $168.41 monthly bill — zero upfront capital, you keep the discount on the credits.</textarea>
       <button id="ask" type="button">Ask</button>
     </div>
@@ -309,7 +311,7 @@
       <button class="sample" type="button">Compare balcony solar to community solar</button>
       <!-- NOT .sample — that class means "put this text in the box and ask it". -->
       <button class="linkbtn" id="copy-link" type="button"
-              title="Copy a link that reopens this exact scenario">🔗 Copy link to this scenario</button>
+              title="Copy a link that reopens this exact scenario">Copy link to this scenario</button>
     </div>
     <div class="followup" id="tip"><strong>Want a tighter estimate?</strong> <span id="tip-body">The
       most valuable thing you could tell us: your electricity usage in kWh — monthly or annual,
@@ -318,14 +320,14 @@
     <div id="notice" role="status"></div>
   </div>
 
-  <div class="card" id="result"></div>
+  <div id="result"></div>
 
   <details class="refine" id="refine">
     <summary>Refine this estimate — options, every step, every assumption</summary>
     <div class="refine-body">
       <div class="mode-switch" role="group" aria-label="Estimate mode">
         <button class="mode active" type="button" data-mode="single" aria-pressed="true">One option</button>
-        <button class="mode" type="button" data-mode="compare" aria-pressed="false">Compare side by side</button>
+        <button class="mode" type="button" data-mode="compare" aria-pressed="false">Compare</button>
       </div>
 
       <div id="single-picker">
@@ -358,8 +360,8 @@
         <label for="bill">Roughly how much is your monthly power bill?
           <span class="tag tag-sourced" id="bill-tag">default (sourced)</span></label>
         <input id="bill" type="number" min="0" step="10" value="168.41" inputmode="decimal">
-        <p class="hint" style="margin-top:8px">Pre-filled with the average Maine CMP bill ($168.41 at
-          550 kWh, Maine DOE) until you enter yours.</p>
+        <p class="hint" style="margin-top:8px">Pre-filled with the average Maine CMP bill ($168.41
+          at 550 kWh, Maine DOE) until you enter yours.</p>
       </div>
 
       <div class="opt" id="usage-row">
@@ -375,7 +377,7 @@
         ledger below — expand a row to see what it means and where it comes from.</p>
       <button id="reset" type="button">↺ Reset assumptions to defaults</button>
     </div>
-    <div class="card" id="detail"></div>
+    <div id="detail"></div>
   </details>
 
   <footer>
@@ -392,6 +394,6 @@
 </div>
 <!-- Bump ?v= whenever app.js changes: it keeps a cached script from being served with a newer
      page skeleton (the mismatch renders no estimate; app.js also fails loudly if it happens). -->
-<script src="app.js?v=6"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maine Solar Investment Calculator — Layout A (Editorial)</title>
+<!--
+  BAKE-OFF CANDIDATE A — "Editorial"  [restored for review; not part of the live site]
+  THESIS: the current design is RIGHT and merely over-dressed. Keep the editorial ambition;
+  delete the systems that compete with it. One accent, two families, hairlines instead of cards.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper:#faf6ef; --paper-2:#f1ebe0;
+    --ink:#1c1f1a; --ink-soft:#4a4f45; --muted:#7d7768;
+    --rule:#e0d8c9; --rule-strong:#c9bda6;
+    --accent:#b26b0f;
+    --pos:#2f6a4a; --neg:#a5451c;
+  }
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body {
+    margin:0; background:var(--paper); color:var(--ink);
+    font:400 17px/1.65 "Public Sans", system-ui, sans-serif;
+    font-variant-numeric:tabular-nums;
+  }
+  .wrap { max-width:680px; margin:0 auto; padding:56px 22px 96px; }
+
+  .masthead { margin-bottom:38px; }
+  .kicker { font:600 11px/1 "Public Sans", sans-serif; letter-spacing:.24em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 14px; }
+  h1 { font-family:"Fraunces", Georgia, serif; font-weight:600; font-optical-sizing:auto;
+    font-size:clamp(2.3rem, 7vw, 3.4rem); line-height:1; letter-spacing:-.02em; margin:0; }
+
+  .ask-block { padding-bottom:26px; border-bottom:1px solid var(--rule-strong); }
+  .askrow { display:flex; gap:14px; align-items:flex-end; }
+  #question {
+    flex:1; background:transparent; color:var(--ink); resize:none; border:none; border-radius:0;
+    padding:0 0 10px; min-height:74px;
+    font-family:"Fraunces", Georgia, serif; font-weight:400; font-size:1.4rem; line-height:1.3;
+    border-bottom:1px solid var(--rule);
+  }
+  #question:focus-visible { outline:none; border-bottom-color:var(--accent); }
+  #ask { background:var(--ink); color:var(--paper); border:1px solid var(--ink); border-radius:2px;
+    padding:11px 22px; cursor:pointer; white-space:nowrap;
+    font:600 .92rem "Public Sans", sans-serif; }
+  #ask:hover { background:var(--accent); border-color:var(--accent); }
+
+  .samples { display:flex; flex-wrap:wrap; gap:0 18px; margin-top:16px; }
+  button.sample, button.linkbtn {
+    background:none; border:none; padding:4px 0; margin:0; cursor:pointer; text-align:left;
+    font:400 .87rem "Public Sans", sans-serif; color:var(--muted);
+    border-bottom:1px solid transparent;
+  }
+  button.sample:hover, button.linkbtn:hover { color:var(--accent); border-bottom-color:var(--accent); }
+  button.linkbtn { font-weight:600; color:var(--ink-soft); }
+
+  #notice { display:none; margin:22px 0 0; padding:2px 0 2px 16px;
+    border-left:2px solid var(--accent); color:var(--ink-soft); font-size:.92rem; }
+  #notice.show { display:block; }
+  #parity-banner:not(:empty) { margin:0 0 26px; padding:2px 0 2px 16px;
+    border-left:2px solid var(--neg); color:var(--neg); font-weight:600; }
+
+  .followup { margin:22px 0 0; padding:2px 0 2px 16px; border-left:2px solid var(--rule-strong);
+    color:var(--ink-soft); font-size:.92rem; }
+  .followup strong { color:var(--ink); }
+  .followup .eg { font-style:italic; }
+
+  #result { padding:34px 0 30px; border-bottom:1px solid var(--rule-strong); }
+  .headline { text-align:left; }
+  .card-label { font:600 11px/1 "Public Sans", sans-serif; letter-spacing:.18em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 14px; }
+  .big { font-family:"Fraunces", Georgia, serif; font-weight:600;
+    font-size:clamp(2.6rem, 9vw, 4rem); line-height:.98; letter-spacing:-.03em;
+    color:var(--ink); font-variant-numeric:tabular-nums; }
+  .big span { font-family:"Public Sans", sans-serif; font-size:.95rem; font-weight:600;
+    color:var(--muted); margin-left:10px; letter-spacing:.02em; }
+  .sub { margin-top:12px; color:var(--ink-soft); font-size:.97rem; }
+  .sub strong { color:var(--ink); font-weight:600; }
+  .npv-what { background:none; border:none; padding:0; margin-left:4px; cursor:pointer;
+    color:var(--accent); font:600 .85rem "Public Sans", sans-serif;
+    border-bottom:1px solid var(--accent); }
+  .npv-what:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .npv-def { margin-top:12px; max-width:56ch; font-size:.88rem; line-height:1.55;
+    color:var(--ink-soft); padding-left:16px; border-left:1px solid var(--rule-strong); }
+  .context { margin-top:14px; color:var(--muted); font-size:.87rem; line-height:1.55; }
+  .context em { color:var(--neg); font-style:normal; font-weight:600; }
+
+  details.refine { margin-top:30px; }
+  details.refine > summary { cursor:pointer; list-style:none;
+    font-family:"Fraunces", Georgia, serif; font-weight:600; font-size:1.15rem; color:var(--ink); }
+  details.refine > summary::-webkit-details-marker { display:none; }
+  details.refine > summary::after { content:" →"; color:var(--accent); }
+  details.refine[open] > summary::after { content:" ↓"; }
+  details.refine > summary:hover { color:var(--accent); }
+  .refine-body { padding:24px 0 0; }
+
+  h3 { font-family:"Fraunces", Georgia, serif; font-weight:600; font-size:1.1rem;
+    margin:34px 0 14px; }
+  h3 .hint { font-family:"Public Sans", sans-serif; font-weight:400; }
+  #detail > h3:first-child { margin-top:30px; }
+  .hint { color:var(--muted); font-weight:400; font-size:.87rem; }
+  label { display:block; font-weight:600; margin-bottom:8px; }
+
+  .mode-switch { display:inline-flex; gap:20px; margin:0 0 24px; }
+  button.mode { background:none; border:none; border-bottom:2px solid transparent; border-radius:0;
+    padding:4px 0; margin:0; cursor:pointer; color:var(--muted);
+    font:600 .8rem "Public Sans", sans-serif; letter-spacing:.1em; text-transform:uppercase; }
+  button.mode:hover { color:var(--accent); }
+  button.mode.active { color:var(--ink); border-bottom-color:var(--accent); }
+
+  .toggles { display:flex; flex-wrap:wrap; gap:8px 10px; margin:4px 0; }
+  button.toggle { background:none; color:var(--ink-soft); border:1px solid var(--rule-strong);
+    border-radius:2px; padding:8px 14px; margin:0; cursor:pointer;
+    font:500 .87rem "Public Sans", sans-serif; }
+  button.toggle:hover { border-color:var(--accent); color:var(--accent); }
+  button.toggle.active { background:var(--ink); color:var(--paper); border-color:var(--ink); }
+  .toggle-hint { margin-top:10px; }
+
+  input[type=number] {
+    background:transparent; color:var(--ink); border:none; border-bottom:1px solid var(--rule-strong);
+    border-radius:0; padding:6px 2px; width:130px;
+    font:500 1rem "Public Sans", sans-serif; font-variant-numeric:tabular-nums; }
+  input[type=number]:focus-visible { outline:none; border-bottom:2px solid var(--accent); }
+  .billrow input { font-size:1.5rem; width:160px; }
+  .opt { margin-top:20px; } .opt label { font-size:.94rem; }
+  #bill-row { margin-top:20px; }
+  .shared-head { margin:30px 0 4px; padding-top:22px; border-top:1px solid var(--rule-strong); }
+  .shared-note { color:var(--muted); font-size:.87rem; margin:0; }
+  .usage-meta { margin-top:10px; }
+
+  ol.steps { list-style:none; counter-reset:step; padding:0; margin:0; }
+  ol.steps li { counter-increment:step; position:relative; padding:16px 0 16px 38px;
+    border-top:1px solid var(--rule); }
+  ol.steps li:first-child { border-top:none; padding-top:4px; }
+  ol.steps li::before { content:counter(step); position:absolute; left:0; top:18px;
+    font:600 .8rem "Public Sans", sans-serif; color:var(--accent);
+    font-variant-numeric:tabular-nums; }
+  ol.steps li:first-child::before { top:6px; }
+  .step-label { font-weight:600; }
+  code { display:block; margin:7px 0; color:var(--muted);
+    font:400 .85rem/1.5 "Public Sans", sans-serif; }
+  .step-val { font-weight:600; font-size:1.05rem; font-variant-numeric:tabular-nums; }
+  .unit { color:var(--muted); font-size:.78rem; font-weight:500; }
+
+  .assumptions { display:grid; gap:0; }
+  .assumption { border-top:1px solid var(--rule); padding:18px 0; }
+  .assumption:first-child { border-top:none; }
+  .arow { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .tag { font:600 .67rem/1 "Public Sans", sans-serif; letter-spacing:.06em;
+    text-transform:uppercase; white-space:nowrap; padding:0; border:none; background:none; }
+  .tag-sourced { color:var(--pos); }
+  .tag-unsourced { color:var(--neg); }
+  .tag-user { color:var(--accent); }
+  .src { font-size:.85rem; color:var(--muted); margin-top:9px; line-height:1.55; }
+  .src a { color:var(--ink-soft); }
+  .src.warn { color:var(--neg); font-weight:500; }
+  details.why { margin-top:10px; }
+  details.why > summary { cursor:pointer; color:var(--accent); font-weight:600; font-size:.83rem;
+    list-style:none; }
+  details.why > summary::-webkit-details-marker { display:none; }
+  details.why > summary::after { content:" +"; }
+  details.why[open] > summary::after { content:" –"; }
+  .deep { margin-top:10px; padding-left:16px; border-left:1px solid var(--rule-strong);
+    font-size:.9rem; line-height:1.6; color:var(--ink-soft); }
+  .deep p { margin:0 0 9px; } .deep p:last-child { margin-bottom:0; }
+
+  details.opt-sec { border-top:1px solid var(--rule); }
+  details.opt-sec > summary { cursor:pointer; list-style:none; display:flex; align-items:baseline;
+    gap:10px; padding:16px 0; font-family:"Fraunces", Georgia, serif; font-weight:600;
+    font-size:1.05rem; }
+  details.opt-sec > summary::-webkit-details-marker { display:none; }
+  details.opt-sec > summary::before { content:"+"; color:var(--accent); font-family:"Public Sans", sans-serif; }
+  details.opt-sec[open] > summary::before { content:"–"; }
+  details.opt-sec > summary:hover { color:var(--accent); }
+  .sec-tail { margin-left:auto; font:500 .82rem "Public Sans", sans-serif; color:var(--muted);
+    font-variant-numeric:tabular-nums; }
+  .sec-body { padding:0 0 22px; }
+  .sec-body > h3:first-child { margin-top:0; }
+
+  .cmp-wrap { overflow-x:auto; margin-top:8px; }
+  table.cmp-table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  .cmp-table th { font:600 10px/1.3 "Public Sans", sans-serif; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--muted); text-align:right; padding:8px 12px;
+    border-bottom:1px solid var(--rule-strong); white-space:nowrap; }
+  .cmp-table th:first-child { text-align:left; padding-left:0; }
+  .cmp-table td { padding:12px; border-bottom:1px solid var(--rule); text-align:right;
+    font-size:.92rem; white-space:nowrap; }
+  .cmp-table td.opt-name { text-align:left; padding-left:0; font-weight:600; white-space:normal; }
+  .cmp-table tbody tr { cursor:pointer; }
+  .cmp-table tbody tr:hover td { background:var(--paper-2); }
+  .cmp-table tbody tr.focus td { box-shadow:inset 2px 0 0 var(--accent); }
+  .cmp-pos { color:var(--pos); font-weight:600; }
+  .cmp-neg { color:var(--neg); font-weight:600; }
+  .cmp-err { color:var(--neg); white-space:normal; }
+  .cmp-mark { color:var(--accent); font-size:.85em; }
+  .cmp-note { text-align:left; }
+  button.cmp-exit { background:none; border:none; border-bottom:1px solid var(--accent);
+    border-radius:0; color:var(--accent); cursor:pointer; padding:2px 0; margin-top:16px;
+    font:600 .85rem "Public Sans", sans-serif; }
+
+  #reset { background:none; color:var(--ink-soft); border:1px solid var(--rule-strong);
+    border-radius:2px; padding:9px 16px; margin-top:26px; cursor:pointer;
+    font:600 .87rem "Public Sans", sans-serif; }
+  #reset:hover { border-color:var(--accent); color:var(--accent); }
+
+  footer { color:var(--muted); font-size:.84rem; line-height:1.65; margin-top:52px;
+    padding-top:22px; border-top:1px solid var(--rule-strong); }
+  footer a { color:var(--ink-soft); }
+  footer .poc { margin:0 0 12px; }
+  footer .poc strong { color:var(--ink); }
+  footer em { color:var(--neg); font-style:normal; font-weight:600; }
+
+  @media (max-width:560px) {
+    .askrow { flex-direction:column; align-items:stretch; gap:12px; }
+    #ask { align-self:flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="parity-banner"></div>
+
+  <header class="masthead">
+    <p class="kicker">Maine · Residential Solar</p>
+    <h1>Solar Options</h1>
+  </header>
+
+  <div class="ask-block">
+    <div class="askrow">
+      <textarea id="question" rows="2" aria-label="Your solar question">Estimate community solar on a $168.41 monthly bill — zero upfront capital, you keep the discount on the credits.</textarea>
+      <button id="ask" type="button">Ask</button>
+    </div>
+    <div class="samples" aria-label="Sample questions">
+      <button class="sample" type="button">What if I put solar panels on my roof?</button>
+      <button class="sample" type="button">Is a home battery worth it with rooftop solar?</button>
+      <button class="sample" type="button">I rent — what can plug-in balcony solar save me?</button>
+      <button class="sample" type="button">Is a plug-in battery worth it on CMP's time-of-use rate?</button>
+      <button class="sample" type="button">Compare balcony solar to community solar</button>
+      <button class="linkbtn" id="copy-link" type="button"
+              title="Copy a link that reopens this exact scenario">Copy link to this scenario</button>
+    </div>
+    <div class="followup" id="tip"><strong>Want a tighter estimate?</strong> <span id="tip-body">The
+      most valuable thing you could tell us: your electricity usage in kWh — monthly or annual,
+      it's in your bill's usage history — and who your utility is. For example:
+      <span class="eg">“I use 550 kWh a month with CMP — what would community solar save me?”</span></span></div>
+    <div id="notice" role="status"></div>
+  </div>
+
+  <div id="result"></div>
+
+  <details class="refine" id="refine">
+    <summary>Refine this estimate — options, every step, every assumption</summary>
+    <div class="refine-body">
+      <div class="mode-switch" role="group" aria-label="Estimate mode">
+        <button class="mode active" type="button" data-mode="single" aria-pressed="true">One option</button>
+        <button class="mode" type="button" data-mode="compare" aria-pressed="false">Compare side by side</button>
+      </div>
+
+      <div id="single-picker">
+        <label>Which option (or pairing)?</label>
+        <div class="toggles" role="group" aria-label="Solar options">
+          <button class="toggle" type="button" data-part="community">Community solar</button>
+          <button class="toggle" type="button" data-part="balcony">Balcony solar</button>
+          <button class="toggle" type="button" data-part="rooftop">Rooftop</button>
+          <button class="toggle" type="button" data-part="battery">Battery</button>
+          <button class="toggle" type="button" data-part="plugin-battery">Plug-in battery</button>
+        </div>
+        <p class="hint toggle-hint">Battery pairs with rooftop or balcony solar. Community solar
+          and the plug-in (TOU) battery stand alone, and rooftop + balcony isn’t offered (one PV
+          system at a time).</p>
+      </div>
+
+      <div id="compare-picker" hidden>
+        <label>Which options do you want side by side?
+          <span class="hint">(pick any two or more)</span></label>
+        <div class="toggles" id="compare-toggles" role="group" aria-label="Options to compare"></div>
+        <p class="hint toggle-hint">Every option you pick gets a row in the table and its own
+          ledger below. Drop back to one and you’re in the single-option view again.</p>
+      </div>
+
+      <p class="card-label shared-head" id="shared-head" hidden>Shared inputs</p>
+      <p class="shared-note" id="shared-note" hidden>These are your situation, not any one option’s
+        — every option in the comparison is computed from them.</p>
+
+      <div class="billrow" id="bill-row">
+        <label for="bill">Roughly how much is your monthly power bill?
+          <span class="tag tag-sourced" id="bill-tag">default (sourced)</span></label>
+        <input id="bill" type="number" min="0" step="10" value="168.41" inputmode="decimal">
+        <p class="hint" style="margin-top:10px">Pre-filled with the average Maine CMP bill ($168.41
+          at 550 kWh, Maine DOE) until you enter yours.</p>
+      </div>
+
+      <div class="opt" id="usage-row">
+        <label for="annual-usage">Your annual usage in kWh
+          <span class="tag tag-sourced" id="usage-tag" hidden>default (sourced)</span></label>
+        <input id="annual-usage" type="number" min="0" step="100" placeholder="estimate from bill">
+        <div class="usage-meta" id="usage-meta"></div>
+      </div>
+
+      <div id="shared-assumptions"></div>
+
+      <p class="hint" style="margin-top:14px">Every other assumption is editable directly in the
+        ledger below — expand a row to see what it means and where it comes from.</p>
+      <button id="reset" type="button">↺ Reset assumptions to defaults</button>
+    </div>
+    <div id="detail"></div>
+  </details>
+
+  <footer>
+    <p class="poc"><strong>This is a proof of concept.</strong> It’s a transparency demo, not
+      financial advice and not a quote. Every number is an estimate built from general Maine
+      defaults — including some that are placeholders awaiting research. Get real quotes before
+      spending real money.</p>
+    Defaults are values sourced from
+    <a href="https://github.com/AurelianTactics/solar-investment-research">this repo</a>.
+    Edit any to fit your situation. Anything tagged <em>unsourced — pending research</em> should
+    not be treated as established fact. Code available
+    <a href="https://github.com/AurelianTactics/solar-investment-calculator">here</a>.
+  </footer>
+</div>
+<!-- ARCHIVED CANDIDATE — not part of the live site, and NOT openable directly (there is no app.js
+     beside it). Drive it the way it was judged, which copies app.js next to a generated driver:
+       python tools/verify_web.py run --page docs/design/2026-07-20-layout-bakeoff/candidates/a.html
+     Evidence lands in .verify/evidence-docs-design-...-a.json and its own screenshots/ subdir; a
+     non-default --page never feeds the Stop gate. -->
+<script src="app.js?v=7"></script>
+</body>
+</html>

@@ -6,11 +6,12 @@
 * DONE merge into master
 * DONE merge into the plan branch
 * run the plan
-    * TEST W1
-    * TEST W2
-    * W3 (different UI)
-    * look and feel
+    * DONE W1
+    * DONE W2
+    * DONE W3 (different UI)
+    * BACKLOG look and feel
         * TOU parts
+    * TOU fix
     * W4 (Railway)
     * W5 MCP
 * when done with the plan, backlog and next ideas / future iterations
@@ -53,12 +54,12 @@
             * "when editing the options, have it turn back into text the user entered. Maybe carry that text down like what is being shown with the rate of return stuff or have it somewhere so the user can then run or save their query."
 
 * the P;lug in battery thing isn't clear at all. case 1, case 2, case 3. streamline this or hold back on it until later
-    * maybe the lay out the 3 cases
+    * Let's just simplify it for now and do the TOU case where already doing a % low enough to justify TOU. So the plug in battery to reduce it
 
-
+* minimal user feedback plan: something just to store reactions and stats and data from this
 
 # Backlog
-
+* more user testing / planning on it
 * leasing / non purchase for batteries and rooftop solar and what that means return wise
 * power purchase agreements
 * add more states
@@ -75,6 +76,7 @@
 * links to learning about / resources for understanding
 * agent native
 * ug, this website is stil way too fucking busy
+    * still ugly after many iterations ah well
 * many more example queries
     * caching / building on existing queries to routes so LLM doesn't have to infer
 * can enter zip code or location and get power company and rates maybe

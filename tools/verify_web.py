@@ -37,7 +37,15 @@ import sys
 import tempfile
 
 # Files whose content defines "the website". A change to any of these invalidates prior evidence.
+#
+# Deliberately just the LIVE page. `run --page` can drive any candidate (the W3 layout bake-off
+# puts three at web/layouts/{a,b,c}.html), but the Stop gate protects web/index.html and nothing
+# else: exploratory candidates must not be able to block a turn, and a promoted winner IS
+# index.html, so the gate covers it again with no change here.
 WEB_FILES = ["web/index.html", "web/app.js"]
+
+# The page `run` drives unless --page says otherwise.
+DEFAULT_PAGE = "web/index.html"
 
 # Options the page exposes (mirror of the OPTIONS registry in web/app.js) — all seven R4 states.
 OPTIONS = ["community", "balcony", "rooftop", "battery", "plugin-battery",
@@ -292,7 +300,23 @@ def screenshot(chromium: str, file_url: str, out_path: str, timeout: int = 60) -
 
 # --------------------------------------------------------------------------- subcommands
 
-def cmd_run(root: str) -> int:
+def page_slug(page: str) -> str | None:
+    """Evidence namespace for a non-default page, or None for the live page.
+
+    The live page writes .verify/evidence.json + screenshots/<state>.png (what the gate reads).
+    A candidate writes .verify/evidence-<slug>.json + screenshots/<slug>/<state>.png, so driving
+    a bake-off layout can never overwrite — and thus never falsely certify — the live page's
+    evidence. Without this the gate would see a passing record whose file_hashes still match an
+    untouched index.html and conclude index.html was verified, when a layout was.
+    """
+    norm = page.replace("\\", "/").strip("/")
+    if norm == DEFAULT_PAGE:
+        return None
+    stem = norm[len("web/"):] if norm.startswith("web/") else norm
+    return stem.rsplit(".", 1)[0].replace("/", "-")
+
+
+def cmd_run(root: str, page: str = DEFAULT_PAGE) -> int:
     chromium = find_chromium()
     if not chromium:
         print("[infra] no chromium-family browser found (looked for chromium/chrome/msedge on "
@@ -301,22 +325,36 @@ def cmd_run(root: str) -> int:
               file=sys.stderr)
         return EXIT_INFRA
 
+    page_path = os.path.join(root, page.replace("/", os.sep))
+    if not os.path.exists(page_path):
+        print(f"[infra] page not found: {page}", file=sys.stderr)
+        return EXIT_INFRA
+    slug = page_slug(page)
+
     vdir = os.path.join(root, VERIFY_DIR)
-    shots = os.path.join(vdir, "screenshots")
+    shots_rel = os.path.join(VERIFY_DIR, "screenshots") if slug is None \
+        else os.path.join(VERIFY_DIR, "screenshots", slug)
+    shots = os.path.join(root, shots_rel)
     drivers = os.path.join(vdir, "_drivers")
     os.makedirs(shots, exist_ok=True)
     os.makedirs(drivers, exist_ok=True)
 
-    # app.js must sit next to each driver so `<script src="app.js">` resolves.
-    shutil.copy2(os.path.join(root, "web", "app.js"), os.path.join(drivers, "app.js"))
-    with open(os.path.join(root, "web", "index.html"), encoding="utf-8") as fh:
+    # app.js must resolve from each driver. Drivers live in .verify/_drivers/, so a copy goes
+    # beside them (for index.html's `src="app.js"`) and one directory up (for a layout's
+    # `src="../app.js"`) — that way a candidate is driven with the SAME unmodified app.js the
+    # live page uses, which is the constraint that makes the bake-off honest.
+    app_js = os.path.join(root, "web", "app.js")
+    shutil.copy2(app_js, os.path.join(drivers, "app.js"))
+    shutil.copy2(app_js, os.path.join(vdir, "app.js"))
+    with open(page_path, encoding="utf-8") as fh:
         index_src = fh.read()
 
-    print(f"verify_web: driving {len(STATES)} states in {os.path.basename(chromium)} (headless)\n")
+    print(f"verify_web: driving {len(STATES)} states of {page} in "
+          f"{os.path.basename(chromium)} (headless)\n")
     results: dict[str, dict] = {}
     overall_ok = True
     for opt in STATES:
-        driver_path = os.path.join(drivers, f"render-{opt}.html")
+        driver_path = os.path.join(drivers, f"render-{slug + '-' if slug else ''}{opt}.html")
         with open(driver_path, "w", encoding="utf-8") as fh:
             fh.write(build_driver(index_src, opt))
         url = pathlib.Path(driver_path).as_uri()  # correct file:// form on every OS
@@ -329,7 +367,7 @@ def cmd_run(root: str) -> int:
             continue
 
         problems = assert_render(opt, dom)
-        shot_rel = os.path.join(VERIFY_DIR, "screenshots", f"{opt}.png")
+        shot_rel = os.path.join(shots_rel, f"{opt}.png")
         shot_abs = os.path.join(root, shot_rel)
         try:
             shot_ok = screenshot(chromium, url, shot_abs)
@@ -353,12 +391,15 @@ def cmd_run(root: str) -> int:
         "verified_at": _dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "result": "pass" if overall_ok else "fail",
         "chromium": chromium,
+        "page": page,
         "options": results,
         "file_hashes": file_hashes(root),
     }
-    with open(os.path.join(root, EVIDENCE_PATH), "w") as fh:
+    evidence_rel = EVIDENCE_PATH if slug is None \
+        else os.path.join(VERIFY_DIR, f"evidence-{slug}.json")
+    with open(os.path.join(root, evidence_rel), "w") as fh:
         json.dump(evidence, fh, indent=2)
-    print(f"\nevidence -> {EVIDENCE_PATH}  (result: {evidence['result']})")
+    print(f"\nevidence -> {evidence_rel}  (result: {evidence['result']})")
     return EXIT_OK if overall_ok else EXIT_RUN_FAIL
 
 
@@ -436,7 +477,10 @@ def cmd_check(root: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Evidence-backed verification for the web mirror.")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("run", help="drive every option in chromium and record evidence")
+    run = sub.add_parser("run", help="drive every option in chromium and record evidence")
+    run.add_argument("--page", default=DEFAULT_PAGE,
+                     help="repo-relative page to drive (default: %(default)s). A non-default page "
+                          "writes its own evidence/screenshots and does NOT feed the Stop gate.")
     sub.add_parser("check", help="deterministic gate: pass only on fresh, passing evidence")
     rec = sub.add_parser("record", help="record a judged perception verdict (agent loop)")
     rec.add_argument("state", help="which page state was judged (e.g. community, battery+rooftop)")
@@ -448,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
 
     root = repo_root()
     if args.cmd == "run":
-        return cmd_run(root)
+        return cmd_run(root, args.page)
     if args.cmd == "check":
         return cmd_check(root)
     if args.cmd == "record":
