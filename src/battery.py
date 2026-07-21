@@ -7,7 +7,7 @@ the NPV is strongly negative. Its real value is **resilience** (backup power), m
 separate, user-set ``resilience_value_per_year`` kept apart from bill savings so the
 pure-economics verdict stays honest.
 
-The one real bill-savings lever is an **optional TOU delivery rate** (CMP Rate TOU, eff.
+The one real bill-savings lever is an **optional time-of-use delivery rate** (CMP Rate TOU, eff.
 2026-07-01; Versant "Home Eco" A-4/A-4M), modeled as the off-by-default ``tou_enrolled`` mode:
 the installed battery faces the identical three-case math as the plug-in DER battery (see
 ``tou.py``) — it's just a more expensive device, so it fails more break-evens. Off by default;
@@ -16,7 +16,7 @@ a few hundred $/yr at most; it does not flip the resilience-not-ROI verdict.
 Chain (every step returned for display):
   1. capacity & price -> gross system cost ($)
   2. federal credit   -> net upfront capital ($)
-  3. TOU mode         -> annual arbitrage value ($/yr; 0 unless tou_enrolled)
+  3. time-of-use mode         -> annual arbitrage value ($/yr; 0 unless tou_enrolled)
   4. bill savings + arbitrage + resilience -> annual value ($)
   then annual value + net cost -> capital-allocation verdict via capital.compare over the
   expected ~13-yr service life (NOT the 10-yr warranty) with ~3%/yr LFP capacity fade.
@@ -100,11 +100,11 @@ def compute(
             if tou_result.case == 2
             else "case 3 (rescue): arb = max(0, usage x discount - residual_kwh x penalty)"
         )
-        tou_label = (f"TOU mode ON -> Case {tou_result.case} arbitrage "
+        tou_label = (f"Time-of-use mode ON -> Case {tou_result.case} arbitrage "
                      f"(threshold: on-peak share < {tou_result.threshold_share:.4f})")
     else:
         tou_formula = "tou_arbitrage = 0 (tou_enrolled = 0: staying on the flat rate)"
-        tou_label = "TOU mode off (default) -> no arbitrage on a flat rate"
+        tou_label = "Time-of-use mode off (default) -> no arbitrage on a flat rate"
 
     steps = (
         Step(1, "Capacity & price -> gross system cost",
@@ -117,7 +117,7 @@ def compute(
              ("tou_enrolled", "annual_usage_kwh", "on_peak_share", "residual_coverage",
               "enrollment_discount_per_kwh", "residual_penalty_per_kwh"),
              tou_arbitrage, "$/yr"),
-        Step(4, "Bill savings + TOU arbitrage + resilience -> annual value",
+        Step(4, "Bill savings + time-of-use arbitrage + resilience -> annual value",
              "annual_value = annual_bill_savings + tou_arbitrage + resilience_value_per_year",
              ("annual_bill_savings", "resilience_value_per_year"), annual_savings, "$/yr"),
     )

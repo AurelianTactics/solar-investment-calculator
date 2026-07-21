@@ -5,15 +5,28 @@
     * TEST other one
 * DONE merge into master
 * DONE merge into the plan branch
-* run the plan
+* DONE run the plan
     * DONE W1
     * DONE W2
     * DONE W3 (different UI)
     * BACKLOG look and feel
-        * TOU parts
-    * TOU fix
-    * W4 (Railway)
-    * W5 MCP
+        * TOU other parts
+    * DONE FIXES TOU fix
+        * DONE have the webpage default go to a CMP customer comparing community solar, plug in solar and rooftop solar
+        * DONE For the plug in battery, what backup power during outages is worth to you per year defaults to zero. Make sure with home battery option as well defaults to zero.
+        * DONE don't use TOU abbrevation, use time of usage
+        * DONE WITH REFINEMENT somewhere have to explain TOU arbitrage idea near the top. Maybe in the expand button a bit? I'm not sure where
+            * maybe all the options should have a brief explanation on mouse over or expand. wouldn't hurt to have for this. This can be a sentence or two for most of them. Keep it high level and simple and use existing text fields / places. Don't make this more cluttered.
+* review W4 and W5
+    * REVIEW W4 (Railway)
+    * REVIEW W5 MCP
+    * W4 and W5 have a hand off plan
+        * docs/deploy-handoff.md
+        * need to refine implementation a bit, especially W5
+        * wait 
+* minimal feedback stuff plan
+    * plan written, review
+    * docs/plans/2026-07-20-001-feat-minimal-user-feedback.md
 * when done with the plan, backlog and next ideas / future iterations
     * organize, what next steps would be, fun stuff to di etc
 
@@ -24,41 +37,10 @@
 # To do
 
 
-
-
-* HAVE A BRANCH WITH TEH PLAN plan this out:
-    * i'm not a huge fan of the layout, color scheme, text blobs etc. get a few different ideas for this
-    * other  maybe quick fixes ideas
-        * disclaimer as POC
-            add this part to the bottom of the page and have a disclaimer that this is a proof of concept "Ask a plain question, get a fact-checkable answer. Every number below is a labeled, editable, sourced assumption — never a black box."
-        * when editing the options, have it turn back into text. Maybe carry that text down like what is being shown with the rate of return stuff
-        * button says 'community' instead of 'community solar'
-
-    * feedback from users into the self improvement loop
-    * Railway deploy
-    * MCP / way for other agents to access the tool and data
-
-    NEW WORKTREE FOR WHEN THIS FINISHES UP Let's plan out the rest of the things I want to finish up before I close out this POC:
-        * Let's add a disclaimer at the bottom of the page that this is a POC.
-        * remove this part "Ask a plain question, get a fact-checkable answer. Every number below is a labeled, editable, sourced assumption — never a black box."
-        * button says 'community' instead of 'community solar'
-        * I am not a huge fan of the layout, color scheme and many of the text blobs. Let's try 3 different layouts and I can see what sticks. This still seems too busy, too many different font sizes, bold / italics, colors etc. Seems somehow too busy and yet when flourishes or touches are added that are useful/needed them seem ugly.
-        * when editing the options, have it turn back into text. Maybe carry that text down like what is being shown with the rate of return stuff
-            * Is there a way to then kind of cache this so don't need the LLM to interpret?
-        * Railway deploy
-        * feedback from users into a self improvement loop (we'll have to talk about this more)
-        * Deploy this as an MCP or other tool that agents can get access to the data and the process
-
-
-        * ADDED TO PLAN Was the below part of the plan? I'm not sure if I suggested this or if this ever entered into one of the fixes.
-            * "when editing the options, have it turn back into text the user entered. Maybe carry that text down like what is being shown with the rate of return stuff or have it somewhere so the user can then run or save their query."
-
-* the P;lug in battery thing isn't clear at all. case 1, case 2, case 3. streamline this or hold back on it until later
-    * Let's just simplify it for now and do the TOU case where already doing a % low enough to justify TOU. So the plug in battery to reduce it
-
 * minimal user feedback plan: something just to store reactions and stats and data from this
 
 # Backlog
+* oh no, teh claude.md and related cruff keeps growing. Uh oh
 * more user testing / planning on it
 * leasing / non purchase for batteries and rooftop solar and what that means return wise
 * power purchase agreements
@@ -86,8 +68,43 @@
 * calculation fix
     * What the brief's master equation uses instead. U×0.058120 − R×0.367366 values each shifted kWh at on-peak minus off-peak = $0.367366 — as if charging were lossless. That's about 1.9% too generous.
         * fix in research, then fix in the app
+* TOU and plug in battery: only doing one option, this could be expanded
+* glossary, terms, and terminology understanding. maybe links to the wiki
 
 # Done
+
+* DONE HAVE A BRANCH WITH TEH PLAN plan this out:
+    * i'm not a huge fan of the layout, color scheme, text blobs etc. get a few different ideas for this
+    * other  maybe quick fixes ideas
+        * disclaimer as POC
+            add this part to the bottom of the page and have a disclaimer that this is a proof of concept "Ask a plain question, get a fact-checkable answer. Every number below is a labeled, editable, sourced assumption — never a black box."
+        * when editing the options, have it turn back into text. Maybe carry that text down like what is being shown with the rate of return stuff
+        * button says 'community' instead of 'community solar'
+
+    * feedback from users into the self improvement loop
+    * Railway deploy
+    * MCP / way for other agents to access the tool and data
+
+    NEW WORKTREE FOR WHEN THIS FINISHES UP Let's plan out the rest of the things I want to finish up before I close out this POC:
+        * Let's add a disclaimer at the bottom of the page that this is a POC.
+        * remove this part "Ask a plain question, get a fact-checkable answer. Every number below is a labeled, editable, sourced assumption — never a black box."
+        * button says 'community' instead of 'community solar'
+        * I am not a huge fan of the layout, color scheme and many of the text blobs. Let's try 3 different layouts and I can see what sticks. This still seems too busy, too many different font sizes, bold / italics, colors etc. Seems somehow too busy and yet when flourishes or touches are added that are useful/needed them seem ugly.
+        * when editing the options, have it turn back into text. Maybe carry that text down like what is being shown with the rate of return stuff
+            * Is there a way to then kind of cache this so don't need the LLM to interpret?
+        * Railway deploy
+        * feedback from users into a self improvement loop (we'll have to talk about this more)
+        * Deploy this as an MCP or other tool that agents can get access to the data and the process
+
+
+        * ADDED TO PLAN Was the below part of the plan? I'm not sure if I suggested this or if this ever entered into one of the fixes.
+            * "when editing the options, have it turn back into text the user entered. Maybe carry that text down like what is being shown with the rate of return stuff or have it somewhere so the user can then run or save their query."
+
+* DONE the Plug in battery thing isn't clear at all. case 1, case 2, case 3. streamline this or hold back on it until later
+    * Let's just simplify it for now and do the TOU case where already doing a % low enough to justify TOU. So the plug in battery to reduce it
+* DONE Let's fix the plug in battery part on this branch. Case 1, 2, and 3 is not clear. Let's just simplify it for now and do the TOU case where already doing a % low enough to justify TOU. So the plug in battery to reduce your bill and do arbitrage. We'll backlog the other cases. Commit when you are done then clear your context.
+* DONE Implement W4 and W5 of docs\plans\2026-07-15-001-feat-poc-closeout-plan.md as much as you can on this branch. Write a document when done for what you want the human to verify or to do for the set up. I will get to it at some point. Feel free to skip around as the human will not be available until much later. Commit when you are done then clear your context.
+* DONE Then plan out the minimal work done to have some sort of user feedback. What stats and raw feedback can we collect from users to potentially improve the product later? Nothing fancy. We can automate the feedback look and do crazy agent native or compound engineering in the future. For now it's more what passive and active low hanging fruit can we co for user feedback.
 * DONE clicking up and down should be scaled correctly. .01 or .1 for things that are fraction. $10 for thinks like monthly bill. 1 for things like years
     * work started
 * DONE incorporate wiki updates (solar-investment-research\wiki\calculator-brief\handoff-2026-07-16.md)

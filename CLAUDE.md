@@ -25,10 +25,13 @@ Seven option states are modeled:
   capital-allocation engine (`src/capital.py`): each is a small pure module (`src/balcony.py`,
   `src/rooftop.py`, `src/battery.py`, `src/plugin_battery.py`) that produces upfront cost +
   annual savings, then asks the engine for payback/NPV vs. investing the cash. Battery and
-  plugin-battery share the TOU arbitrage engine (`src/tou.py`): battery via the off-by-default
-  `tou_enrolled` mode (which still uses the full three-case branch), plugin-battery as its whole
-  point. **Plugin-battery is deliberately scoped to one case** (2026-07-20): the home already
-  under the 15.8% on-peak line, where enrolling in TOU lowers the bill on its own and the battery
+  plugin-battery share the time-of-use arbitrage engine (`src/tou.py`): battery via the
+  off-by-default `tou_enrolled` mode (which still uses the full three-case branch),
+  plugin-battery as its whole point. Both price `resilience_value_per_year` at **$0 by default**
+  (2026-07-21) — what an outage is worth is the user's to state, and a shipped verdict must not
+  quietly assume it; the assumption stays `unsourced` and the ledger carries whatever the user
+  enters. **Plugin-battery is deliberately scoped to one case** (2026-07-20): the home already
+  under the 15.8% on-peak line, where enrolling lowers the bill on its own and the battery
   adds arbitrage on top. Over the line, `compute` raises `OutOfScope` (a `ValueError`, so the CLI
   and web already handle it) instead of half-answering — the rescue case is backlogged with its
   UI problem stated. Don't reintroduce case-branching output here without solving that first.
@@ -44,7 +47,19 @@ carries `explain` (newcomer-grade plain English) and sourced defaults carry `sou
 (what the document is, who publishes it, why credible) — both flow to CLI text, `--json`, and the
 web. `src/cli.py` is the human + agent surface. `web/` is a question-first UI (question box →
 agent service, with automatic client-side form fallback) mirroring the Python formulas with an
-on-load self-check.
+on-load self-check. It **lands on a three-way comparison** (`DEFAULT_COMPARE` in `web/app.js`:
+community, balcony, rooftop at the sourced CMP bill) rather than a single option — the shape of
+the decision, not one answer. Every option carries a plain-English `blurb` in the registry: it
+opens each ledger as `.blurb` and is the `title=` tooltip on the pickers and compare rows. One
+string, three surfaces — a hover that disagreed with the expanded text would be worse than none.
+A blurb says **what the option is and nothing else**: no rates, hour windows, statutory caps, or
+credit percentages. Those are sourced, editable assumptions rendered right below it, and a blurb
+restating one is a second copy that goes stale the next time a tariff or a tax credit changes.
+
+**Write "time-of-use", never "TOU"** in anything a user reads (labels, steps, explains, blurbs,
+CLI text). The abbreviation survives only in code identifiers (`tou_enrolled`, `tou_arbitrage`,
+`_CMP_TOU_URL`) — those are the CLI/MCP/JSON contract — and in the tariff's literal published
+name, CMP's "Rate TOU".
 
 Any option, and any **two or more** options side by side, are reachable three ways — by asking, by
 clicking (the refine drawer's mode switch → option picker), or headlessly (`--compare`,

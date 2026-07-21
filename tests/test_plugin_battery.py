@@ -1,10 +1,12 @@
 """Formula-correctness tests for the plug-in / DIY DER battery option (the active metric).
 
-Scope (2026-07-20): this option models ONE situation — the home already under the TOU on-peak
-line (share < 0.1582), where enrolling lowers the bill on its own and the battery adds arbitrage
-on top. Over the line is out of scope and raises; see docs/BACKLOG.md.
+Scope (2026-07-20): this option models ONE situation — the home already under the time-of-use
+on-peak line (share < 0.1582), where enrolling lowers the bill on its own and the battery adds
+arbitrage on top. Over the line is out of scope and raises; see docs/BACKLOG.md.
 
-Hand-verified worked example (shipped defaults; CMP Rate TOU rates):
+Hand-verified worked example (shipped defaults; CMP Rate TOU rates), with the resilience value
+stated explicitly — as of 2026-07-21 it defaults to $0 rather than $200, so that the shipped
+verdict counts only money the battery demonstrably earns:
   6,600 kWh home, 12% on-peak, 70% coverage -> under the 0.1582 line
   on-peak 792 kWh; shifted 554.4; residual 237.6
   enrolling alone = 6600 x 0.058120 - 792 x 0.367366 = 383.592 - 290.953872 = 92.638128 $/yr
@@ -127,8 +129,20 @@ class TestDefaultsFromAssumptions:
         a = {**capital_assumptions(), **plugin_battery_assumptions()}
         r = plugin_battery.compute_from_assumptions(a)
         assert r.upfront_cost == pytest.approx(1330.56)
-        assert r.annual_savings == pytest.approx(ARB + 200.0)
+        # Shipped defaults price resilience at $0, so the annual value IS the arbitrage.
+        assert r.annual_savings == pytest.approx(ARB)
         assert r.capital.horizon_years == 10   # plugin overrides the 25-yr PV default
+        # ...and the user's own number rides on top, unchanged arithmetic.
+        a["resilience_value_per_year"] = a["resilience_value_per_year"].with_user_value(200.0)
+        assert plugin_battery.compute_from_assumptions(a).annual_savings == pytest.approx(
+            ARB + 200.0)
+
+    def test_resilience_defaults_to_zero_and_stays_unsourced(self):
+        """What an outage is worth is the user's to state — the shipped verdict must not
+        assume a number no research supports."""
+        a = plugin_battery_assumptions()["resilience_value_per_year"]
+        assert a.value == 0.0
+        assert a.tag == UNSOURCED
 
     def test_shipped_default_is_a_home_this_option_models(self):
         a = plugin_battery_assumptions()
@@ -174,7 +188,7 @@ class TestCli:
         payload = json.loads(run_cli("--option", "plugin-battery", "--json").stdout)
         assert payload["option"] == "plugin-battery"
         assert payload["result"]["upfront_cost"] == pytest.approx(1330.56)
-        assert payload["result"]["annual_savings_year1"] == pytest.approx(ARB + 200.0)
+        assert payload["result"]["annual_savings_year1"] == pytest.approx(ARB)
         assert payload["assumptions"]["installed_cost_per_kwh"]["is_unsourced"]
 
     def test_compare_row_matches_single_option_payload(self):
@@ -191,7 +205,7 @@ class TestCli:
         res = run_cli("--option", "plugin-battery", "--set", "on_peak_share=0.25",
                       expect_ok=False)
         assert res.returncode != 0
-        assert "under the TOU on-peak line" in res.stderr
+        assert "under the time-of-use on-peak line" in res.stderr
         assert "Traceback" not in res.stderr    # a clean error, not a crash
 
     def test_shared_usage_flag_reaches_the_option(self):

@@ -233,6 +233,17 @@
   .sec-body { padding:0 0 18px; }
   .sec-body > h3:first-child { margin-top:0; }
 
+  /* What this option actually IS, in plain English — the one prose paragraph in a page of
+     numbers. It opens every ledger (single view and each compared option's expanded section)
+     so the answer to "wait, what is a plug-in battery?" sits above the arithmetic instead of
+     being reconstructed from 25 assumption labels. Set in the label family, not the number
+     family, and left-ruled rather than boxed: it is context, not a callout, and the ledger's
+     density rules still apply to everything below it. */
+  .blurb { margin:0 0 4px; padding:0 0 0 11px; border-left:2px solid var(--rule-strong);
+    font:400 .86rem/1.6 "Public Sans", sans-serif; color:var(--ink-soft); max-width:64ch; }
+  .blurb em { font-style:normal; font-weight:600; color:var(--ink); }
+  .sec-body > .blurb:first-child { margin-top:2px; }
+
   /* ---- comparison: the statement's summary table ---- */
   .cmp-wrap { overflow-x:auto; margin-top:6px; }
   table.cmp-table { width:100%; border-collapse:collapse; }
@@ -340,7 +351,7 @@
           <button class="toggle" type="button" data-part="plugin-battery">Plug-in battery</button>
         </div>
         <p class="hint toggle-hint">Battery pairs with rooftop or balcony solar. Community solar
-          and the plug-in (TOU) battery stand alone, and rooftop + balcony isn’t offered (one PV
+          and the plug-in (time-of-use) battery stand alone, and rooftop + balcony isn’t offered (one PV
           system at a time).</p>
       </div>
 

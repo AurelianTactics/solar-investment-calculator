@@ -1,21 +1,21 @@
 """Plug-in / DIY DER battery — pure calculation core (source of truth for this option).
 
 The buy-and-plug cousin of the installed battery: a low-cost battery (consumer power station or
-DIY LFP build) the homeowner installs themselves to arbitrage CMP's optional TOU delivery rate.
+DIY LFP build) the homeowner installs themselves to arbitrage CMP's optional time-of-use delivery rate.
 
-**Scope (2026-07-20): this option models ONE situation — the home already under the TOU line.**
+**Scope (2026-07-20): this option models ONE situation — the home already under the time-of-use line.**
 The master equation (see ``tou.py``) is
 
     TOU_savings_vs_flat = U x 0.058120  -  R x 0.367366     (CMP; delivery-only, supply cancels)
 
-and it splits on a single threshold: TOU beats flat with no battery at all iff
+and it splits on a single threshold: time-of-use beats flat with no battery at all iff
 ``on_peak_share < 0.1582``. This module answers only for homes under that line, where the story
-is one clean sentence: **enrolling in TOU already lowers your bill, and the battery adds arbitrage
-on top of it.** The baseline is TOU-without-a-battery, so the battery earns exactly the on-peak
+is one clean sentence: **enrolling in time-of-use already lowers your bill, and the battery adds arbitrage
+on top of it.** The baseline is time-of-use-without-a-battery, so the battery earns exactly the on-peak
 penalty it avoids on each kWh it shifts — ``shifted_kwh x penalty``, no netting, no floor.
 
 A home *over* the line is a different question with a different baseline (flat), where the battery
-must first claw back the enrollment penalty before TOU wins at all, and where the break-even price
+must first claw back the enrollment penalty before time-of-use wins at all, and where the break-even price
 falls as the on-peak share worsens. Presenting both through one set of outputs is what made this
 option unreadable, so the over-the-line case is **out of scope and backlogged**
 (`docs/BACKLOG.md`) rather than half-modeled: ``compute`` raises with a plain-English explanation
@@ -33,7 +33,7 @@ Chain (every step returned for display):
   5. shifted / cycles -> battery size needed (kWh)
   6. size x price -> gross cost ($)
   7. federal credit -> net upfront capital ($; 0% — 25D expired, no TPO for a self-install)
-  8. TOU arbitrage the battery adds on top of enrolling ($/yr)
+  8. time-of-use arbitrage the battery adds on top of enrolling ($/yr)
   9. break-even installed cost ($/kWh — the shopping number)
  10. arbitrage + resilience -> annual value ($/yr)
   then annual value + net cost -> capital-allocation verdict via capital.compare (10-yr life).
@@ -53,7 +53,7 @@ from solar_calc import Step
 
 
 class OutOfScope(ValueError):
-    """The home isn't in the situation this option models (on-peak share over the TOU line).
+    """The home isn't in the situation this option models (on-peak share over the time-of-use line).
 
     A ``ValueError`` subclass so every existing surface already handles it: the CLI turns it into
     ``cli.py: error: <message>``, and the web mirror renders it as an inline notice.
@@ -106,9 +106,9 @@ def compute(
 
     if not t.under_threshold:
         raise OutOfScope(
-            f"plug-in battery models only homes already under the TOU on-peak line "
+            f"plug-in battery models only homes already under the time-of-use on-peak line "
             f"(on_peak_share < {t.threshold_share:.4f}); yours is {on_peak_share:.4f}. Over the "
-            f"line, enrolling in TOU loses money before the battery even starts, so the battery "
+            f"line, enrolling in time-of-use loses money before the battery even starts, so the battery "
             f"has to rescue the enrollment rather than add to it - a different calculation that "
             f"isn't modeled yet (see docs/BACKLOG.md). Measure your real on-peak share from your "
             f"utility's hourly download, or compare the installed battery option instead."
@@ -138,14 +138,14 @@ def compute(
         Step(1, "Usage x on-peak share -> on-peak kWh (weekday 5-9 p.m.)",
              "on_peak_kwh = annual_usage_kwh x on_peak_share",
              ("annual_usage_kwh", "on_peak_share"), t.on_peak_kwh, "kWh/yr"),
-        Step(2, f"Threshold check -> the most on-peak kWh a home can use and still win on TOU "
+        Step(2, f"Threshold check -> the most on-peak kWh a home can use and still win on time-of-use "
                 f"alone ({t.threshold_share * 100:.1f}% of usage); you're at "
                 f"{on_peak_share * 100:.1f}%, under it, so this option applies",
              "on_peak_ceiling = annual_usage_kwh x enrollment_discount_per_kwh "
              "/ residual_penalty_per_kwh",
              ("on_peak_share", "enrollment_discount_per_kwh", "residual_penalty_per_kwh"),
              t.threshold_share * annual_usage_kwh, "kWh/yr"),
-        Step(3, "Switching to TOU with NO battery -> what the rate change alone saves "
+        Step(3, "Switching to time-of-use with NO battery -> what the rate change alone saves "
                 "(the battery's baseline)",
              "enrollment_only = usage x enrollment_discount - on_peak_kwh x residual_penalty",
              ("annual_usage_kwh", "on_peak_share", "enrollment_discount_per_kwh",
@@ -162,7 +162,7 @@ def compute(
         Step(7, "Federal credit -> net upfront capital (25D expired; no TPO for a self-install)",
              "net_cost = gross_cost x (1 - federal_itc_pct)",
              ("federal_itc_pct",), net_cost, "$"),
-        Step(8, "TOU arbitrage the battery adds on top of enrolling (each shifted kWh dodges the "
+        Step(8, "Time-of-use arbitrage the battery adds on top of enrolling (each shifted kWh dodges the "
                 "on-peak penalty)",
              "tou_arbitrage = shifted_kwh x residual_penalty_per_kwh",
              ("residual_coverage", "residual_penalty_per_kwh"), t.arbitrage, "$/yr"),

@@ -1,8 +1,8 @@
-"""Time-of-use (TOU) arbitrage — the master equation and three-case branch, shared by the
+"""Time-of-use (time-of-use) arbitrage — the master equation and three-case branch, shared by the
 installed battery (``battery.py``, optional ``tou_enrolled`` mode) and the plug-in DER battery
-(``plugin_battery.py``, where TOU arbitrage is the whole point).
+(``plugin_battery.py``, where time-of-use arbitrage is the whole point).
 
-The model (sourced to the CMP Rate TOU tariff, eff. 2026-07-01, via
+The model (sourced to the CMP time-of-use delivery-rate tariff, eff. 2026-07-01, via
 ../solar-investment-research/wiki/calculator-brief/plugin-battery-answers.md):
 
     TOU_savings_vs_flat = U x discount  -  R x penalty
@@ -16,11 +16,11 @@ enrollment discount (the exact trap the research handoff warns against).
 
 The branch (who your baseline is decides what the battery earns):
 
-  Case 1 — threshold check, no battery: TOU beats flat iff on_peak_share < discount/penalty
+  Case 1 — threshold check, no battery: time-of-use beats flat iff on_peak_share < discount/penalty
            (0.1582 for CMP, matching CMP's own ">=86% off-peak" guidance ~2 pts conservative).
-  Case 2 — already under the line ("gravy"): the baseline is TOU-without-battery, so the
+  Case 2 — already under the line ("gravy"): the baseline is time-of-use-without-battery, so the
            battery's arbitrage is only the *incremental* penalty avoided: shifted_kwh x penalty.
-  Case 3 — over the line ("rescue"): TOU-without-battery loses, so the baseline is FLAT ($0);
+  Case 3 — over the line ("rescue"): time-of-use-without-battery loses, so the baseline is FLAT ($0);
            the battery earns the whole net vs. flat, floored at 0 (below 0 you simply stay on
            the flat rate and the battery earns no arbitrage).
 """
@@ -34,7 +34,7 @@ from dataclasses import dataclass
 class TouResult:
     on_peak_kwh: float
     threshold_share: float           # discount / penalty — the Case-1 break-even on-peak share
-    under_threshold: bool            # True -> Case 2 territory (TOU already beats flat)
+    under_threshold: bool            # True -> Case 2 territory (time-of-use already beats flat)
     case: int                        # 2 (gravy) or 3 (rescue) — the battery's case
     enrollment_only_savings: float   # U x discount - on_peak x penalty (Case 1; no battery; can be < 0)
     shifted_kwh: float               # residual_coverage x on_peak_kwh (what the battery shifts)
@@ -74,7 +74,7 @@ def evaluate(
 
     if under_threshold:
         case = 2
-        arbitrage = shifted_kwh * residual_penalty_per_kwh   # incremental; baseline = TOU alone
+        arbitrage = shifted_kwh * residual_penalty_per_kwh   # incremental; baseline = time-of-use alone
     else:
         case = 3
         arbitrage = max(0.0, savings_vs_flat)                # whole net vs. flat; baseline = flat

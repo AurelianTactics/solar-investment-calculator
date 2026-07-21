@@ -149,6 +149,9 @@ class TestDefaultsFromAssumptions(unittest.TestCase):
         self.assertEqual(a["federal_itc_pct"].tag, DEFAULT_SOURCED)
         self.assertEqual(a["resilience_value_per_year"].tag, UNSOURCED)
         self.assertTrue(a["resilience_value_per_year"].is_unsourced)
+        # ...and it defaults to $0 (2026-07-21): what an outage is worth is the user's to state,
+        # so the shipped verdict counts only money the battery demonstrably saves.
+        self.assertEqual(a["resilience_value_per_year"].value, 0.0)
 
     def test_stale_no_arbitrage_claim_is_gone(self):
         # The 2026-07-16 handoff's factual fix: the note must no longer deny that residential

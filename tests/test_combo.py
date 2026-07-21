@@ -6,9 +6,16 @@ the longer horizon, and NPV/payback/verdict derive from the summed stream. Hand-
 example (all escalation/degradation zeroed):
 
   rooftop defaults: year-1 savings 6600 kWh x $0.27 = $1,782;  upfront 5.5 kW x $2.95/W = $16,225
-  battery defaults: year-1 value  $0 + $200 resilience = $200; upfront 13.5 kWh x $998 = $13,473
+  battery:          year-1 value  $0 + $200 resilience = $200; upfront 13.5 kWh x $998 = $13,473
   combined:         upfront $29,698; year-1 $1,982; simple payback 29698/1982 = 14.9839 yr
                     (differs from rooftop's 9.1049 and battery's 67.365 — combined-stream payback)
+
+The $200 resilience is the ONE number here the shipped defaults no longer supply: as of 2026-07-21
+``battery_resilience_value_per_year`` defaults to $0, because what an outage is worth is the
+user's to state and the pure-economics verdict must not quietly assume it. The worked example
+still needs a battery that earns something, so the fixtures below set it explicitly — the
+arithmetic is unchanged, it is just no longer inherited. ``TestResilienceDefault`` pins the
+default itself.
 
 Run with: pytest tests
 """
@@ -38,9 +45,17 @@ from assumptions import (  # noqa: E402
 CLI = os.path.join(os.path.dirname(__file__), "..", "src", "cli.py")
 
 
+def with_resilience(a, value=200.0):
+    """State the battery's resilience value explicitly (it defaults to $0 — see the docstring)."""
+    a["battery_resilience_value_per_year"] = (
+        a["battery_resilience_value_per_year"].with_user_value(value)
+    )
+    return a
+
+
 def flat_assumptions(builder):
     """Builder defaults with escalation/degradation zeroed (the hand-verified example)."""
-    a = builder()
+    a = with_resilience(builder())
     a["electricity_escalation"] = a["electricity_escalation"].with_user_value(0.0)
     a["panel_degradation"] = a["panel_degradation"].with_user_value(0.0)
     a["battery_annual_degradation"] = a["battery_annual_degradation"].with_user_value(0.0)
@@ -100,7 +115,7 @@ class TestHorizonHonesty:
         # With the shipped defaults (escalation, PV degradation, and 3%/yr battery fade all
         # live), year-14 combined cashflow must equal the PV-only cashflow: the battery stream
         # ended at its 13-yr service life.
-        a = battery_rooftop_assumptions()
+        a = with_resilience(battery_rooftop_assumptions())
         combo_r = battery_rooftop.compute_from_assumptions(a)
         pv = rooftop.compute_from_assumptions(a)
         assert combo_r.capital.horizon_years == 25
@@ -110,7 +125,7 @@ class TestHorizonHonesty:
             pv.capital.yearly[12].savings + 200.0 * 0.97 ** 12)
 
     def test_battery_balcony_same_rule(self):
-        a = battery_balcony_assumptions()
+        a = with_resilience(battery_balcony_assumptions())
         combo_r = battery_balcony.compute_from_assumptions(a)
         pv = balcony.compute_from_assumptions(a)
         assert combo_r.capital.yearly[13].savings == pytest.approx(pv.capital.yearly[13].savings)

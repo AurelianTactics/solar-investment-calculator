@@ -628,7 +628,7 @@ def rooftop_assumptions() -> dict[str, Assumption]:
     }
 
 
-# --- TOU arbitrage inputs (shared by battery's tou_enrolled mode and plugin-battery) ---------
+# --- time-of-use arbitrage inputs (shared by battery's tou_enrolled mode and plugin-battery) ---------
 
 def _tou_shared_assumptions() -> dict[str, Assumption]:
     """The master-equation inputs (see ``src/tou.py``): the two CMP delivery-rate spreads plus the
@@ -642,14 +642,14 @@ def _tou_shared_assumptions() -> dict[str, Assumption]:
             unit="kWh",
             tag=DEFAULT_SOURCED,
             explain=(
-                "How much electricity your home uses in a year. In the TOU model it scales the "
+                "How much electricity your home uses in a year. In the time-of-use model it scales the "
                 "enrollment discount: every kWh you use earns the flat-vs-off-peak delivery "
                 "discount just by being enrolled, so a bigger home has a bigger arbitrage "
                 "ceiling. Your utility bill's usage history has the real number — use it."
             ),
             source=Source(
                 title="Typical CMP residential usage (~550 kWh/month)",
-                note="Scales the TOU enrollment discount (usage x $0.058120/kWh ceiling). Edit "
+                note="Scales the time-of-use enrollment discount (usage x $0.058120/kWh ceiling). Edit "
                 "to your own annual kWh.",
                 what_is_it=(
                     "A modeling choice: ~550 kWh/month is the typical CMP residential figure "
@@ -666,7 +666,7 @@ def _tou_shared_assumptions() -> dict[str, Assumption]:
             tag=UNSOURCED,
             explain=(
                 "The fraction of your electricity used on weekdays between 5 and 9 p.m. — the "
-                "single number that decides which TOU case you're in. Under 15.8%, the TOU rate "
+                "single number that decides which time-of-use case you're in. Under 15.8%, the time-of-use rate "
                 "beats the flat rate even with no battery (free money by enrolling); over it, "
                 "the on-peak penalty (3.6x the flat rate) bites and a battery has to rescue "
                 "you. Nobody can guess this for you: download your hourly usage from your "
@@ -693,22 +693,22 @@ def _tou_shared_assumptions() -> dict[str, Assumption]:
         ),
         "enrollment_discount_per_kwh": Assumption(
             key="enrollment_discount_per_kwh",
-            label="TOU enrollment discount per kWh (flat minus off-peak delivery, CMP)",
+            label="Time-of-use enrollment discount per kWh (flat minus off-peak delivery, CMP)",
             value=0.058120,
             unit="$/kWh",
             tag=DEFAULT_SOURCED,
             explain=(
-                "What every kWh you use earns simply by being enrolled in the TOU rate, as long "
+                "What every kWh you use earns simply by being enrolled in the time-of-use rate, as long "
                 "as it's bought off-peak: the flat delivery rate ($0.119590) minus the off-peak "
                 "delivery rate ($0.061470). Multiply by your annual usage and you have the "
-                "absolute ceiling on TOU savings — what a magic free battery covering "
+                "absolute ceiling on time-of-use savings — what a magic free battery covering "
                 "everything would earn. Delivery-only: the supply price is the same on both "
                 "rates and cancels out."
             ),
             source=Source(
-                title="CMP Rate TOU tariff (eff. Jul 1, 2026): $0.119590 flat - $0.061470 off-peak",
+                title="CMP time-of-use delivery-rate tariff (eff. Jul 1, 2026): $0.119590 flat - $0.061470 off-peak",
                 url=_CMP_TOU_URL,
-                note="Versant's 'Home Eco' TOU (BHD Rate A-4 / MPD A-4M) has a much thinner "
+                note="Versant's 'Home Eco' time-of-use rate (BHD Rate A-4 / MPD A-4M) has a much thinner "
                 "spread — set this and the penalty so their difference matches its ~$0.101 "
                 "(BHD) / ~$0.099 (MPD) peak-vs-off-peak gap; its on-peak runs only ~6% above "
                 "flat, so enrolling there is nearly risk-free and works weekends too. See "
@@ -730,9 +730,9 @@ def _tou_shared_assumptions() -> dict[str, Assumption]:
                 "flat rate, which is why the model never multiplies it by your whole usage."
             ),
             source=Source(
-                title="CMP Rate TOU tariff (eff. Jul 1, 2026): $0.428836 on-peak - $0.061470 off-peak",
+                title="CMP time-of-use delivery-rate tariff (eff. Jul 1, 2026): $0.428836 on-peak - $0.061470 off-peak",
                 url=_CMP_TOU_URL,
-                note="The threshold on-peak share (below which TOU beats flat with no battery) "
+                note="The threshold on-peak share (below which time-of-use beats flat with no battery) "
                 "is discount / penalty = 0.1582 — matching CMP's own '>=86% off-peak' guidance. "
                 "Versant Home Eco's penalty is only ~$0.10 with on-peak ~6% above flat: thin "
                 "arbitrage, near-zero enrollment risk.",
@@ -750,7 +750,7 @@ def battery_assumptions() -> dict[str, Assumption]:
     default, no owner-bought federal credit since 25D expired). Its value is resilience — modeled
     as a separate, user-set ``resilience_value_per_year`` kept apart from bill savings so the
     pure-economics verdict stays honest. The one real lever is the off-by-default ``tou_enrolled``
-    mode (optional TOU delivery rate; conditional, delivery-only). ``horizon_years`` is 13 — the
+    mode (optional time-of-use delivery rate; conditional, delivery-only). ``horizon_years`` is 13 — the
     expected LFP *service life*, not the 10-year *warranty* (kept as ``warranty_years``, the risk
     floor) — overriding the 25-yr PV default from capital_assumptions().
     """
@@ -758,20 +758,20 @@ def battery_assumptions() -> dict[str, Assumption]:
         **_tou_shared_assumptions(),
         "tou_enrolled": Assumption(
             key="tou_enrolled",
-            label="Enrolled in the optional TOU delivery rate? (0 = no, 1 = yes)",
+            label="Enrolled in the optional time-of-use delivery rate? (0 = no, 1 = yes)",
             value=0.0,
             unit="0 or 1",
             tag=DEFAULT_SOURCED,
             explain=(
                 "Whether you've switched from the default flat delivery rate to the optional "
-                "time-of-use rate (CMP 'Rate TOU', Versant 'Home Eco'). Off by default because "
+                "time-of-use rate (CMP's 'Rate TOU', Versant's 'Home Eco'). Off by default because "
                 "most homes are on the flat rate, where a battery has nothing to arbitrage. "
-                "Turn it on (set to 1) and the battery faces the three-case TOU math: under a "
+                "Turn it on (set to 1) and the battery faces the three-case time-of-use math: under a "
                 "15.8% on-peak share the rate alone wins and the battery adds gravy; over it, "
                 "the battery has to rescue the enrollment from the 3.6x on-peak penalty."
             ),
             source=Source(
-                title="Modeling choice: TOU arbitrage is an optional, off-by-default mode",
+                title="Modeling choice: time-of-use arbitrage is an optional, off-by-default mode",
                 note="Enrollment is a choice, not the default — and CMP's spread is fat but "
                 "conditional (needs ~86% off-peak), so the mode ships off. Versant's Home Eco "
                 "is thin but nearly risk-free.",
@@ -852,29 +852,29 @@ def battery_assumptions() -> dict[str, Assumption]:
         ),
         "annual_bill_savings": Assumption(
             key="annual_bill_savings",
-            label="Annual electricity-bill savings from the battery (outside the TOU mode)",
+            label="Annual electricity-bill savings from the battery (outside the time-of-use mode)",
             value=0.0,
             unit="$",
             tag=DEFAULT_SOURCED,
             explain=(
-                "Money the battery saves on the bill itself each year, outside the TOU "
+                "Money the battery saves on the bill itself each year, outside the time-of-use "
                 "arbitrage modeled separately. On the default flat rate (CMP Rate A: delivery "
                 "AND supply both flat) there is no intraday price spread, and rooftop export "
                 "is already credited at retail value under net energy billing — so the honest "
-                "default is $0. Residential TOU arbitrage DOES exist, but it's conditional and "
+                "default is $0. Residential time-of-use arbitrage DOES exist, but it's conditional and "
                 "delivery-only, so it lives in its own switch (tou_enrolled) rather than being "
                 "buried here."
             ),
             source=Source(
-                title="Modeling choice: ~$0 on the default flat rate (arbitrage lives in the TOU mode)",
-                note="CMP's optional Rate TOU (eff. Jul 1, 2026) is a genuine but conditional, "
+                title="Modeling choice: ~$0 on the default flat rate (arbitrage lives in the time-of-use mode)",
+                note="CMP's optional time-of-use delivery rate (eff. Jul 1, 2026) is a genuine but conditional, "
                 "delivery-only arbitrage — modeled by the off-by-default tou_enrolled mode, not "
                 "by this number. On the flat rate there is no spread; NEB already credits "
                 "rooftop export at retail.",
                 what_is_it=(
                     "A modeling choice this calculator states openly: with a flat rate and "
                     "retail-value NEB credits, there is no price spread for a battery to earn "
-                    "outside the optional TOU rate. The reasoning is in the note; the TOU rates "
+                    "outside the optional time-of-use rate. The reasoning is in the note; the time-of-use rates "
                     "themselves are sourced on the arbitrage assumptions."
                 ),
             ),
@@ -882,7 +882,7 @@ def battery_assumptions() -> dict[str, Assumption]:
         "resilience_value_per_year": Assumption(
             key="resilience_value_per_year",
             label="What backup power during outages is worth to you per year",
-            value=200.0,
+            value=0.0,
             unit="$",
             tag=UNSOURCED,
             explain=(
@@ -890,8 +890,10 @@ def battery_assumptions() -> dict[str, Assumption]:
                 "reason Mainers buy batteries. It's inherently personal: spoiled food, a sump "
                 "pump that must run, medical equipment, working from home through an ice "
                 "storm. It's kept separate from bill savings so the pure-economics verdict "
-                "stays honest. No researched number exists; $200 is a placeholder meant to "
-                "make you think about your own answer."
+                "stays honest. No researched number exists and no one can price your outage "
+                "for you, so the default is $0: the verdict you see counts only money the "
+                "battery demonstrably saves. Put your own number here and the ledger will "
+                "carry it."
             ),
             source=None,
         ),
@@ -906,7 +908,7 @@ def battery_assumptions() -> dict[str, Assumption]:
                 "chemistry (Powerwall 3) fades roughly 1-4% a year, and the fade continues "
                 "past the warranty's 70%-at-10-years floor. The model trims each future "
                 "year's value by this rate, the battery equivalent of panel degradation. "
-                "Deep-cycling daily to chase TOU savings pushes you toward the fast end."
+                "Deep-cycling daily to chase time-of-use savings pushes you toward the fast end."
             ),
             source=Source(
                 title="Modeling choice: ~3%/yr LFP capacity fade (1-4%/yr range)",
@@ -979,7 +981,7 @@ def plugin_battery_assumptions() -> dict[str, Assumption]:
     """Plug-in / DIY DER battery defaults. Sourced to
     ../solar-investment-research/wiki/calculator-brief/plugin-battery-answers.md.
 
-    The TOU arbitrage model (see ``src/plugin_battery.py``), scoped to homes already under the
+    The time-of-use arbitrage model (see ``src/plugin_battery.py``), scoped to homes already under the
     0.1582 on-peak line: the arbitrage *rates* and the algebra are sourced/exact; the two
     load-bearing unknowns — ``installed_cost_per_kwh`` and ``residual_coverage`` — ship honestly
     tagged ``unsourced``. ``on_peak_share`` is the user's own metered number, and this option
@@ -998,7 +1000,7 @@ def plugin_battery_assumptions() -> dict[str, Assumption]:
             explain=(
                 "The fraction of your electricity used on weekdays between 5 and 9 p.m. — the "
                 "number that decides whether this option applies to you at all. Under 15.8%, the "
-                "TOU rate already beats the flat rate with no battery, and a plug-in battery "
+                "time-of-use rate already beats the flat rate with no battery, and a plug-in battery "
                 "adds arbitrage on top of that: this is the situation the calculator models. "
                 "Over 15.8%, the on-peak penalty (3.6x the flat rate) means enrolling loses "
                 "money until a battery rescues it — a different calculation that isn't built "
@@ -1035,14 +1037,14 @@ def plugin_battery_assumptions() -> dict[str, Assumption]:
             unit="$/kWh/yr",
             tag=DEFAULT_SOURCED,
             explain=(
-                "What one kWh of battery capacity earns per year once you're on the TOU rate: "
+                "What one kWh of battery capacity earns per year once you're on the time-of-use rate: "
                 "250 weekday cycles times the on-peak price avoided, net of the ~10% round-trip "
                 "charging loss. Multiply by the analysis horizon and you get the break-even "
                 "installed cost — about $901/kWh over 10 years — which is why a cheap plug-in "
                 "unit clears it and a $998/kWh Powerwall doesn't."
             ),
             source=Source(
-                title="CMP Rate TOU arithmetic: 250 x ($0.428836 - $0.061470/0.90) ~= $90.13",
+                title="CMP time-of-use tariff arithmetic: 250 x ($0.428836 - $0.061470/0.90) ~= $90.13",
                 url=_CMP_TOU_URL,
                 note="Exact algebra on the sourced tariff rates with a 0.90 round-trip "
                 "efficiency. Break-even ~= $901/kWh simple over 10 yr (~$633 at 7% NPV). See "
@@ -1090,16 +1092,18 @@ def plugin_battery_assumptions() -> dict[str, Assumption]:
         "resilience_value_per_year": Assumption(
             key="resilience_value_per_year",
             label="What backup power during outages is worth to you per year",
-            value=200.0,
+            value=0.0,
             unit="$",
             tag=UNSOURCED,
             explain=(
                 "What not losing power in an outage is worth to YOU each year. A plug-in "
                 "battery doubles as portable backup — fridge, phones, a sump pump through an "
                 "ice storm — which for many buyers is the real reason to own one, with the "
-                "TOU arbitrage as the kicker. Kept separate from the arbitrage so the "
-                "pure-economics verdict stays honest. No researched number exists; $200 is a "
-                "placeholder meant to make you think about your own answer."
+                "time-of-use arbitrage as the kicker. Kept separate from the arbitrage so "
+                "the pure-economics verdict stays honest. No researched number exists and no "
+                "one can price your outage for you, so the default is $0: the verdict you "
+                "see counts only money the battery demonstrably saves. Put your own number "
+                "here and the ledger will carry it."
             ),
             source=None,
         ),
@@ -1113,7 +1117,7 @@ def plugin_battery_assumptions() -> dict[str, Assumption]:
                 "How many years of value the comparison counts — a stated ~10-year service "
                 "life for a consumer power station cycled daily. Shorter than the installed "
                 "battery's 13-year horizon because the hardware is cheaper and the daily "
-                "TOU cycling works it harder. The Case-2 break-even scales directly with "
+                "time-of-use cycling works it harder. The Case-2 break-even scales directly with "
                 "this: ~$901/kWh at 10 years, ~$1,172 at 13."
             ),
             source=Source(
