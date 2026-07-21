@@ -14,6 +14,23 @@ Ideas captured, not committed. Pulled from the original concept, `STRATEGY.md`, 
 
 ## Utility / billing depth
 
+- **Plug-in battery: the over-the-line ("rescue") case.** *Deferred 2026-07-20.* The plug-in
+  battery option now models exactly one situation — a home whose on-peak share is already under
+  the 15.8% TOU line, where enrolling lowers the bill on its own and the battery adds arbitrage on
+  top. Over the line the whole calculation changes: the baseline is the flat rate, not TOU, so the
+  battery must first claw back the enrollment penalty before TOU wins at all, and the break-even
+  installed cost *falls* as the on-peak share worsens ($908/kWh at 16% → $581 at 25% → $363 at
+  40%, from `plugin-battery-answers.md`). Presenting both through one set of outputs is what made
+  the option unreadable ("Case 1/2/3" meant nothing to a reader), so the code now refuses over the
+  line rather than half-answering. Reviving it needs a UI answer first — probably a separate
+  question ("your evenings are expensive; can a battery rescue you?") rather than a branch inside
+  one result — plus the honest caveat that winter electric heat is the on-peak load a small
+  plug-in usually *can't* reach. The math itself is preserved in `src/tou.py` (case 3) and in git
+  history at `071b18b`.
+- **Installed battery's `tou_enrolled` mode still speaks in cases.** `src/battery.py` keeps the
+  three-case branch and names "Case 2 / Case 3" in its step labels. It's off by default and a
+  secondary mode, so it wasn't touched by the 2026-07-20 plug-in simplification — but the same
+  readability complaint applies if that mode ever becomes prominent.
 - CMP vs Versant billing mechanics, side by side.
 - Time-of-use rates and base-load-based billing options (e.g., CMP TOU discount).
 - How each utility bills the customer (supply vs delivery split, net-energy-billing credit rules).

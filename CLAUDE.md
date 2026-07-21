@@ -25,8 +25,13 @@ Seven option states are modeled:
   capital-allocation engine (`src/capital.py`): each is a small pure module (`src/balcony.py`,
   `src/rooftop.py`, `src/battery.py`, `src/plugin_battery.py`) that produces upfront cost +
   annual savings, then asks the engine for payback/NPV vs. investing the cash. Battery and
-  plugin-battery share the TOU three-case arbitrage engine (`src/tou.py`): battery via the
-  off-by-default `tou_enrolled` mode, plugin-battery as its whole point.
+  plugin-battery share the TOU arbitrage engine (`src/tou.py`): battery via the off-by-default
+  `tou_enrolled` mode (which still uses the full three-case branch), plugin-battery as its whole
+  point. **Plugin-battery is deliberately scoped to one case** (2026-07-20): the home already
+  under the 15.8% on-peak line, where enrolling in TOU lowers the bill on its own and the battery
+  adds arbitrage on top. Over the line, `compute` raises `OutOfScope` (a `ValueError`, so the CLI
+  and web already handle it) instead of half-answering — the rescue case is backlogged with its
+  UI problem stated. Don't reintroduce case-branching output here without solving that first.
 - **battery+rooftop, battery+balcony** — stream-wise additive combos (`src/combo.py` mechanism,
   `src/battery_rooftop.py` / `src/battery_balcony.py` thin configs): each component keeps its own
   escalation/degradation/horizon stream; `capital.combine()` sums per-year cashflows and derives

@@ -47,7 +47,8 @@ FOLLOWUP = {
     "rooftop": "your real annual kWh usage and a competing installer quote ($/W)",
     "battery": "what backup power through an outage is worth to you per year",
     "plugin-battery": "your on-peak share (weekday 5-9 p.m. fraction of your usage, from your "
-                      "utility's hourly download) — it decides which TOU case you're in",
+                      "utility's hourly download) — it decides whether this option applies to "
+                      "you at all",
     "battery+rooftop": "your annual kWh usage and a real installer quote ($/W)",
     "battery+balcony": "your daytime self-consumption share and an electrician quote",
 }

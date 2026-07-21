@@ -2,21 +2,24 @@
 
 The buy-and-plug cousin of the installed battery: a low-cost battery (consumer power station or
 DIY LFP build) the homeowner installs themselves to arbitrage CMP's optional TOU delivery rate.
-The economics reduce to **one master equation and a three-way branch** (see ``tou.py``) — NOT a
-capture-fraction multiply, which double-counts the enrollment discount against the penalty:
+
+**Scope (2026-07-20): this option models ONE situation — the home already under the TOU line.**
+The master equation (see ``tou.py``) is
 
     TOU_savings_vs_flat = U x 0.058120  -  R x 0.367366     (CMP; delivery-only, supply cancels)
 
-  Case 1 (threshold, no battery): TOU beats flat iff on_peak_share < 0.1582 — free money by
-         just enrolling; shown so a user who's already under the line knows no hardware is needed.
-  Case 2 (under the line, "gravy"): each shifted kWh is a clean $0.367366; break-even installed
-         cost ~ $901/kWh over 10 yr — a cheap plug-in unit clears it easily.
-  Case 3 (over the line, "rescue"): baseline is FLAT ($0); the battery must claw back the
-         penalty before TOU beats flat, and the break-even $/kWh FALLS as on-peak share worsens
-         ($908 at 16% -> $581 at 25% -> $363 at 40% for a 10,000 kWh home) — because the battery
-         you need grows while the payoff stays capped at U x 0.058120. The cruel irony: the
-         high-on-peak load that puts you here is usually winter electric heat, exactly what a
-         small plug-in can't cover (the ``residual_coverage`` dial, unsourced).
+and it splits on a single threshold: TOU beats flat with no battery at all iff
+``on_peak_share < 0.1582``. This module answers only for homes under that line, where the story
+is one clean sentence: **enrolling in TOU already lowers your bill, and the battery adds arbitrage
+on top of it.** The baseline is TOU-without-a-battery, so the battery earns exactly the on-peak
+penalty it avoids on each kWh it shifts — ``shifted_kwh x penalty``, no netting, no floor.
+
+A home *over* the line is a different question with a different baseline (flat), where the battery
+must first claw back the enrollment penalty before TOU wins at all, and where the break-even price
+falls as the on-peak share worsens. Presenting both through one set of outputs is what made this
+option unreadable, so the over-the-line case is **out of scope and backlogged**
+(`docs/BACKLOG.md`) rather than half-modeled: ``compute`` raises with a plain-English explanation
+instead of quietly returning numbers from a model the caller didn't ask for.
 
 The battery is sized to what it shifts (usable_kwh = shifted / cycles_per_year), so cost follows
 the user's own load instead of a fixed unit size. ``on_peak_share`` is the user's own metered
@@ -24,14 +27,14 @@ number — the calculator does NOT split load by appliance (out of scope by desi
 
 Chain (every step returned for display):
   1. usage x on-peak share -> on-peak kWh
-  2. threshold check -> which case you're in (2 or 3)
-  3. enrolling with NO battery -> the Case-1 answer ($/yr; > 0 means enrolling alone saves)
+  2. threshold check -> confirm you're under the line (the precondition for this option)
+  3. enrolling with NO battery -> what the rate change alone saves ($/yr; the battery's baseline)
   4. coverage -> shifted on-peak kWh (the residual stays on-peak)
   5. shifted / cycles -> battery size needed (kWh)
   6. size x price -> gross cost ($)
   7. federal credit -> net upfront capital ($; 0% — 25D expired, no TPO for a self-install)
-  8. TOU arbitrage for your case ($/yr)
-  9. break-even installed cost for this case ($/kWh — the shopping number)
+  8. TOU arbitrage the battery adds on top of enrolling ($/yr)
+  9. break-even installed cost ($/kWh — the shopping number)
  10. arbitrage + resilience -> annual value ($/yr)
   then annual value + net cost -> capital-allocation verdict via capital.compare (10-yr life).
 
@@ -49,14 +52,22 @@ import tou
 from solar_calc import Step
 
 
+class OutOfScope(ValueError):
+    """The home isn't in the situation this option models (on-peak share over the TOU line).
+
+    A ``ValueError`` subclass so every existing surface already handles it: the CLI turns it into
+    ``cli.py: error: <message>``, and the web mirror renders it as an inline notice.
+    """
+
+
 @dataclass(frozen=True)
 class PluginBatteryResult:
     tou: tou.TouResult
-    case: int                        # 2 (gravy) or 3 (rescue)
     usable_kwh_needed: float         # battery sized to the shifted load
     gross_cost: float
     upfront_cost: float              # net of any federal credit
-    tou_arbitrage: float
+    enrollment_only_savings: float   # what enrolling alone saves before the battery ($/yr, > 0)
+    tou_arbitrage: float             # what the battery adds on top of enrolling
     resilience_value_per_year: float
     annual_savings: float            # arbitrage + resilience (fed to the capital engine)
     break_even_cost_per_kwh: float   # installed $/kWh at which the battery just pays for itself
@@ -93,20 +104,26 @@ def compute(
         residual_penalty_per_kwh=residual_penalty_per_kwh,
     )
 
+    if not t.under_threshold:
+        raise OutOfScope(
+            f"plug-in battery models only homes already under the TOU on-peak line "
+            f"(on_peak_share < {t.threshold_share:.4f}); yours is {on_peak_share:.4f}. Over the "
+            f"line, enrolling in TOU loses money before the battery even starts, so the battery "
+            f"has to rescue the enrollment rather than add to it - a different calculation that "
+            f"isn't modeled yet (see docs/BACKLOG.md). Measure your real on-peak share from your "
+            f"utility's hourly download, or compare the installed battery option instead."
+        )
+
     usable_kwh_needed = t.shifted_kwh / cycles_per_year
     gross_cost = usable_kwh_needed * installed_cost_per_kwh
     net_cost = gross_cost * (1.0 - federal_itc_pct)
     annual_savings = t.arbitrage + resilience_value_per_year
 
-    # The shopping number. Case 2 uses the sourced per-usable-kWh value (which also nets out
-    # ~10% round-trip charging losses, hence ~$901/kWh at 10 yr rather than 250 x penalty x 10);
-    # Case 3 derives it from this home's own arbitrage and battery size (reproducing the brief's
-    # depth table: $908 at 16% on-peak -> $363 at 40%, coverage 1.0, 10,000 kWh home).
-    if t.case == 2:
-        break_even = value_per_usable_kwh_yr * horizon_years
-    else:
-        break_even = (t.arbitrage * horizon_years / usable_kwh_needed
-                      if usable_kwh_needed > 0 else 0.0)
+    # The shopping number: what one kWh of battery earns per year, times the horizon. The sourced
+    # per-usable-kWh value nets out the ~10% round-trip charging loss, hence ~$901/kWh at 10 yr
+    # rather than 250 x penalty x 10. Buy under it and the battery pays for itself; over it (a
+    # $998/kWh Powerwall) it doesn't.
+    break_even = value_per_usable_kwh_yr * horizon_years
 
     cap = capital.compare(
         upfront_cost=net_cost,
@@ -117,27 +134,19 @@ def compute(
         degradation=0.0,
     )
 
-    arb_formula = (
-        "case 2 (gravy): arb = shifted_kwh x residual_penalty_per_kwh (baseline: TOU already wins)"
-        if t.case == 2
-        else "case 3 (rescue): arb = max(0, usage x discount - residual_kwh x penalty) (baseline: flat)"
-    )
-    be_formula = (
-        "break_even = value_per_usable_kwh_yr x horizon_years"
-        if t.case == 2
-        else "break_even = tou_arbitrage x horizon_years / usable_kwh_needed"
-    )
-
     steps = (
         Step(1, "Usage x on-peak share -> on-peak kWh (weekday 5-9 p.m.)",
              "on_peak_kwh = annual_usage_kwh x on_peak_share",
              ("annual_usage_kwh", "on_peak_share"), t.on_peak_kwh, "kWh/yr"),
-        Step(2, "Threshold check -> which TOU case you're in "
-                f"(under {t.threshold_share:.4f} on-peak = case 2 gravy; over = case 3 rescue)",
-             "case = 2 if on_peak_share < enrollment_discount / residual_penalty else 3",
+        Step(2, f"Threshold check -> the most on-peak kWh a home can use and still win on TOU "
+                f"alone ({t.threshold_share * 100:.1f}% of usage); you're at "
+                f"{on_peak_share * 100:.1f}%, under it, so this option applies",
+             "on_peak_ceiling = annual_usage_kwh x enrollment_discount_per_kwh "
+             "/ residual_penalty_per_kwh",
              ("on_peak_share", "enrollment_discount_per_kwh", "residual_penalty_per_kwh"),
-             float(t.case), "case"),
-        Step(3, "Enrolling with NO battery (the Case-1 answer; > 0 means free money by enrolling)",
+             t.threshold_share * annual_usage_kwh, "kWh/yr"),
+        Step(3, "Switching to TOU with NO battery -> what the rate change alone saves "
+                "(the battery's baseline)",
              "enrollment_only = usage x enrollment_discount - on_peak_kwh x residual_penalty",
              ("annual_usage_kwh", "on_peak_share", "enrollment_discount_per_kwh",
               "residual_penalty_per_kwh"), t.enrollment_only_savings, "$/yr"),
@@ -153,13 +162,14 @@ def compute(
         Step(7, "Federal credit -> net upfront capital (25D expired; no TPO for a self-install)",
              "net_cost = gross_cost x (1 - federal_itc_pct)",
              ("federal_itc_pct",), net_cost, "$"),
-        Step(8, f"TOU arbitrage for your case (case {t.case})",
-             arb_formula, ("annual_usage_kwh", "on_peak_share", "residual_coverage",
-                           "enrollment_discount_per_kwh", "residual_penalty_per_kwh"),
-             t.arbitrage, "$/yr"),
-        Step(9, "Break-even installed cost for this case (the shopping number)",
-             be_formula, ("value_per_usable_kwh_yr", "horizon_years"),
-             break_even, "$/kWh"),
+        Step(8, "TOU arbitrage the battery adds on top of enrolling (each shifted kWh dodges the "
+                "on-peak penalty)",
+             "tou_arbitrage = shifted_kwh x residual_penalty_per_kwh",
+             ("residual_coverage", "residual_penalty_per_kwh"), t.arbitrage, "$/yr"),
+        Step(9, "Break-even installed cost (the shopping number: pay less than this per kWh and "
+                "the battery pays for itself)",
+             "break_even = value_per_usable_kwh_yr x horizon_years",
+             ("value_per_usable_kwh_yr", "horizon_years"), break_even, "$/kWh"),
         Step(10, "Arbitrage + resilience -> annual value",
              "annual_value = tou_arbitrage + resilience_value_per_year",
              ("resilience_value_per_year",), annual_savings, "$/yr"),
@@ -167,10 +177,10 @@ def compute(
 
     return PluginBatteryResult(
         tou=t,
-        case=t.case,
         usable_kwh_needed=usable_kwh_needed,
         gross_cost=gross_cost,
         upfront_cost=net_cost,
+        enrollment_only_savings=t.enrollment_only_savings,
         tou_arbitrage=t.arbitrage,
         resilience_value_per_year=resilience_value_per_year,
         annual_savings=annual_savings,

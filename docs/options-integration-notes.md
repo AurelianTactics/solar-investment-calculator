@@ -209,6 +209,52 @@ resilience dollar value; Versant's fixed-charge delta vs. flat needs a clean app
 
 ---
 
+## Plug-in battery scoped to one case (2026-07-20)
+
+**Why.** The option shipped (2026-07-19) modeling all three TOU cases through one set of outputs,
+and it read as jargon: the headline named "Case 2 (gravy)" or "Case 3 (rescue)", the step labels
+changed formula *and* meaning depending on which case you landed in, and the break-even number
+meant two different things ($901/kWh from the sourced per-kWh value in one case; a derived
+`arb × horizon ÷ size` in the other). A reader could not tell which situation they were in or why
+the numbers on screen had shifted. That's a transparency failure, not a formula bug.
+
+**What changed.** `plugin-battery` now models exactly **one** situation: the home already under
+the 15.8% on-peak line, where switching to CMP Rate TOU lowers the bill on its own and the
+battery adds arbitrage on top (`shifted_kwh × penalty`, the incremental penalty avoided). One
+baseline, one formula per step, one break-even definition.
+
+- `src/plugin_battery.py`: the case branch is gone. Over the line, `compute` raises
+  `OutOfScope(ValueError)` with a plain-English explanation naming the line, where the user
+  actually is, and where the missing case lives — rather than returning numbers from a model the
+  caller didn't ask for. It's a `ValueError` subclass so every existing surface already handles
+  it: the CLI prints `cli.py: error: …`, the web mirror renders it as an inline notice, and the
+  service returns `compute_error: …` (which the page falls back from).
+- `on_peak_share` default **0.25 → 0.12** *for this option only* (`plugin_battery_assumptions()`
+  overrides the shared `_tou_shared_assumptions()` value; battery's `tou_enrolled` keeps 0.25, so
+  no battery numbers moved). The shipped defaults now describe a home the option actually models.
+- Step 2 became a threshold *confirmation* (the on-peak kWh ceiling: `usage × discount ÷ penalty`
+  = 1,044 kWh/yr against your 792) instead of a case selector. It reports kWh because the CLI
+  step formatter renders non-`$` units at `,.0f` — a fraction-valued step would have printed "0".
+- `web/app.js` mirrors all of it, including the refusal; the parity self-check now asserts both
+  the new worked example and that over-the-line **throws**.
+
+**New worked example (shipped defaults):** 6,600 kWh, 12% on-peak, 70% coverage, $600/kWh station
+→ on-peak 792 kWh, shifted 554.4, enrolling alone $92.64/yr, arbitrage $203.67/yr, 2.2176 kWh
+needed, **$1,330.56 upfront**, $403.67/yr with resilience, payback **3.3 yr**, NPV **+$1,505**,
+break-even **$901.30/kWh** (a $600 station clears it; a $998 Powerwall doesn't).
+
+**What surprised us.** The verdict got *better*, not worse. The old default (25% on-peak) was a
+rescue case whose arbitrage barely cleared the hardware — NPV +$50, carried entirely by the $200
+resilience placeholder. The under-the-line default stands on its own economics: NPV is positive
+before resilience matters. Modeling the situation the option is actually good at made the option
+look good, which is a reminder that a default is a claim about who you're talking to.
+
+**What's open.** The rescue case is backlogged with its UI problem stated (`docs/BACKLOG.md`), and
+`src/tou.py` still carries case 3 for battery's `tou_enrolled` mode, so nothing was deleted. The
+two unsourced dials (`installed_cost_per_kwh`, `residual_coverage`) are unchanged.
+
+---
+
 ## Status
 
 All seven roadmap option states are modeled (community, balcony, rooftop, battery, plugin-battery,

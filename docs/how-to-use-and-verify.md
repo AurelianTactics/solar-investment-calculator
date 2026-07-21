@@ -16,7 +16,7 @@ python src/cli.py --bill 150 --json                 # machine-readable
 # Any of the seven option states; --set overrides any assumption (re-tags it "user-provided")
 python src/cli.py --option rooftop --set capacity_kw=8
 python src/cli.py --option battery+rooftop          # combos: battery+rooftop, battery+balcony
-python src/cli.py --option plugin-battery           # plug-in/DIY battery on the TOU rate (3 cases)
+python src/cli.py --option plugin-battery           # plug-in/DIY battery on the TOU rate (under-the-line homes only)
 
 # Two or more options side by side, over shared inputs
 python src/cli.py --compare community,balcony

@@ -979,14 +979,35 @@ def plugin_battery_assumptions() -> dict[str, Assumption]:
     """Plug-in / DIY DER battery defaults. Sourced to
     ../solar-investment-research/wiki/calculator-brief/plugin-battery-answers.md.
 
-    The three-case TOU arbitrage model (see ``src/plugin_battery.py``): the arbitrage *rates* and
-    the *case algebra* are sourced/exact; the two load-bearing unknowns — ``installed_cost_per_kwh``
-    and ``residual_coverage`` — ship honestly tagged ``unsourced``. ``on_peak_share`` is the user's
-    own metered number. ``horizon_years`` here is 10 (consumer power-station service life),
-    overriding the 25-yr PV default from capital_assumptions().
+    The TOU arbitrage model (see ``src/plugin_battery.py``), scoped to homes already under the
+    0.1582 on-peak line: the arbitrage *rates* and the algebra are sourced/exact; the two
+    load-bearing unknowns — ``installed_cost_per_kwh`` and ``residual_coverage`` — ship honestly
+    tagged ``unsourced``. ``on_peak_share`` is the user's own metered number, and this option
+    overrides the shared 0.25 default with an under-the-line placeholder so the defaults describe
+    a home the option actually models. ``horizon_years`` here is 10 (consumer power-station
+    service life), overriding the 25-yr PV default from capital_assumptions().
     """
     return {
         **_tou_shared_assumptions(),
+        "on_peak_share": Assumption(
+            key="on_peak_share",
+            label="Share of your usage during on-peak hours (weekday 5-9 p.m.)",
+            value=0.12,
+            unit="fraction",
+            tag=UNSOURCED,
+            explain=(
+                "The fraction of your electricity used on weekdays between 5 and 9 p.m. — the "
+                "number that decides whether this option applies to you at all. Under 15.8%, the "
+                "TOU rate already beats the flat rate with no battery, and a plug-in battery "
+                "adds arbitrage on top of that: this is the situation the calculator models. "
+                "Over 15.8%, the on-peak penalty (3.6x the flat rate) means enrolling loses "
+                "money until a battery rescues it — a different calculation that isn't built "
+                "yet, so the calculator says so instead of guessing. Nobody can estimate this "
+                "for you: download your hourly usage from your utility's website and measure it. "
+                "The 12% default is only a placeholder for an off-peak-leaning home."
+            ),
+            source=None,
+        ),
         "cycles_per_year": Assumption(
             key="cycles_per_year",
             label="Charge/discharge cycles per year (one per on-peak weekday)",
@@ -1009,23 +1030,23 @@ def plugin_battery_assumptions() -> dict[str, Assumption]:
         ),
         "value_per_usable_kwh_yr": Assumption(
             key="value_per_usable_kwh_yr",
-            label="Arbitrage value per usable kWh of battery per year (Case 2)",
+            label="Arbitrage value per usable kWh of battery per year",
             value=90.13,
             unit="$/kWh/yr",
             tag=DEFAULT_SOURCED,
             explain=(
-                "What one kWh of battery capacity earns per year when every cycle is clean "
-                "gravy (Case 2): 250 weekday cycles times the on-peak price avoided, net of "
-                "the ~10% round-trip charging loss. Multiply by the analysis horizon and you "
-                "get the Case-2 break-even installed cost — about $901/kWh over 10 years — "
-                "which is why a cheap plug-in unit clears it and a $998/kWh Powerwall doesn't."
+                "What one kWh of battery capacity earns per year once you're on the TOU rate: "
+                "250 weekday cycles times the on-peak price avoided, net of the ~10% round-trip "
+                "charging loss. Multiply by the analysis horizon and you get the break-even "
+                "installed cost — about $901/kWh over 10 years — which is why a cheap plug-in "
+                "unit clears it and a $998/kWh Powerwall doesn't."
             ),
             source=Source(
                 title="CMP Rate TOU arithmetic: 250 x ($0.428836 - $0.061470/0.90) ~= $90.13",
                 url=_CMP_TOU_URL,
                 note="Exact algebra on the sourced tariff rates with a 0.90 round-trip "
                 "efficiency. Break-even ~= $901/kWh simple over 10 yr (~$633 at 7% NPV). See "
-                "plugin-battery-answers.md Case 2.",
+                "plugin-battery-answers.md (the under-the-line case).",
                 what_is_it=_WHAT_CMP_TOU,
             ),
         ),
@@ -1038,10 +1059,10 @@ def plugin_battery_assumptions() -> dict[str, Assumption]:
             explain=(
                 "What a buy-and-plug battery costs per usable kWh. Ballparks: consumer power "
                 "stations (EcoFlow, Bluetti, Anker) run roughly $500-700/kWh; a DIY LFP "
-                "battery plus inverter more like $300-500/kWh. That range is the whole "
-                "verdict in Case 3, where the break-even price falls as your on-peak share "
-                "worsens — only the cheap end clears it. No verbatim price page has been "
-                "ingested yet, so $600 is a placeholder: price a real unit before deciding."
+                "battery plus inverter more like $300-500/kWh. Compare whatever you find "
+                "against the break-even $/kWh the calculator reports — that single comparison "
+                "is the verdict. No verbatim price page has been ingested yet, so $600 is a "
+                "placeholder: price a real unit before deciding."
             ),
             source=None,
         ),
