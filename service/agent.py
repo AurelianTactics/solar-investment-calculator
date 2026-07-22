@@ -2,7 +2,7 @@
 
 The graph is deliberately small (the 2026 LangGraph idiom for one routing step):
 
-    extract (one claude-opus-4-8 structured-output call) -> compute (pure src/ imports)
+    extract (one claude-sonnet-5 structured-output call) -> compute (pure src/ imports)
 
 The LLM does ONLY routing + numeric extraction — it never does arithmetic. The compute node
 calls the Python calculation core directly and reuses the CLI's ``--json`` renderers, so
@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import tools_core  # noqa: E402  (the shared payload builder — see its module docstring)
 
-MODEL = "claude-opus-4-8"
+MODEL = "claude-sonnet-5"
 
 OPTION_KEYS = ("community", "balcony", "rooftop", "battery", "plugin-battery",
                "battery+rooftop", "battery+balcony")
@@ -133,7 +133,12 @@ def build_default_extractor(ledger) -> Callable[[str], Extraction]:
         )
     from langchain_anthropic import ChatAnthropic
 
-    llm = ChatAnthropic(model=MODEL, timeout=30, max_retries=1)
+    # thinking off: Sonnet 5 runs adaptive thinking by default (Opus 4.8 did not), and this call
+    # only routes + extracts — the src/ core does every calculation, so reasoning tokens here are
+    # pure latency and cost with nothing to reason about.
+    llm = ChatAnthropic(
+        model=MODEL, timeout=30, max_retries=1, thinking={"type": "disabled"}
+    )
     structured = llm.with_structured_output(Extraction, include_raw=True)
 
     def extract(question: str) -> Extraction:

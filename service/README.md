@@ -12,7 +12,7 @@ One FastAPI app (`app.py`) serving three things from one origin:
 
 `/ask` turns "What savings would I get with community solar when my bill is $150 a month?" into the
 same structured payload `python src/cli.py --json` emits. One LangGraph graph: **extract** (a
-single `claude-opus-4-8` structured-output call that picks the option and pulls out stated numbers)
+single `claude-sonnet-5` structured-output call that picks the option and pulls out stated numbers)
 → **compute** (direct `src/` imports — the LLM never does arithmetic).
 
 `tools_core.py` is where "run the calculator and return the payload" is implemented, once. `/ask`,
@@ -68,7 +68,7 @@ same core.
 
 ## Spending cap — dollars per day
 
-Every response's token usage is priced ($5/$25 per MTok for opus) and accumulated in the
+Every response's token usage is priced ($3/$15 per MTok for Sonnet 5) and accumulated in the
 gitignored `service/.spend.json`, so the cap survives restarts. The window is **one UTC day**: a
 total recorded on any other day reads as zero. That distinction only matters in public, where a
 cumulative-forever total isn't a cap but a fuse — it blows once and stays blown until a human

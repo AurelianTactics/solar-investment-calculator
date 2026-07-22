@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from agent import Agent, Extraction, cache_version  # noqa: E402
 from cache import ExtractionCache, normalize  # noqa: E402
-from spend import SpendLedger  # noqa: E402
+from spend import SpendLedger, cost_usd  # noqa: E402
 
 
 class Counting:
@@ -153,9 +153,9 @@ class TestCacheAndTheSpendCap:
         # The cap bounds SPEND. A cached question spends nothing, so blocking it would deny a free
         # answer for no benefit.
         ex = Counting()
-        agent = make_agent(tmp_path, ex, cap=1.0)
+        agent = make_agent(tmp_path, ex, cap=cost_usd(200_000, 0))
         agent.answer("community solar at $150?")
-        agent.ledger.record(200_000, 0)          # $1.00 -> at cap
+        agent.ledger.record(200_000, 0)          # lands exactly on the cap (inclusive ceiling)
         payload = agent.answer("community solar at $150?")
         assert payload.get("error") != "cap_exceeded"
         assert payload["option"] == "community"
@@ -163,8 +163,8 @@ class TestCacheAndTheSpendCap:
 
     def test_uncached_question_is_still_blocked_at_the_cap(self, tmp_path):
         ex = Counting()
-        agent = make_agent(tmp_path, ex, cap=1.0)
-        agent.ledger.record(200_000, 0)
+        agent = make_agent(tmp_path, ex, cap=cost_usd(200_000, 0))
+        agent.ledger.record(200_000, 0)  # lands exactly on the cap (inclusive ceiling)
         assert agent.answer("a question never asked before")["error"] == "cap_exceeded"
         assert ex.calls == []
 

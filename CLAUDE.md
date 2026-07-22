@@ -69,7 +69,7 @@ clicking (the refine drawer's mode switch → option picker), or headlessly (`--
 page (`/`), the agent endpoint (`/ask`), and the MCP server (`/mcp`). Setup/run/error contract:
 `service/README.md`. Deploying it: `railway.toml` + `docs/deploy-handoff.md`.
 
-- `POST /ask {question}` routes a natural-language question via one `claude-opus-4-8`
+- `POST /ask {question}` routes a natural-language question via one `claude-sonnet-5`
   structured-output call, computes through direct `src/` imports, and returns the CLI `--json`
   payload shape. **The only path that spends money**, and it's bounded four ways: a *rolling
   daily* spend cap (`service/.spend.json`, gitignored, fails closed on corrupt), a per-IP rate

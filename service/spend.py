@@ -30,8 +30,10 @@ import json
 import os
 from dataclasses import dataclass
 
-# claude-opus-4-8 pricing (USD per million tokens) — from the Claude API reference.
-PRICE_PER_MTOK = {"input": 5.0, "output": 25.0}
+# claude-sonnet-5 pricing (USD per million tokens) — from the Claude API reference. Standard
+# rates; an introductory $2/$10 runs through 2026-08-31, so real spend is lower until then — the
+# cap stays conservative by pricing at the standard (higher) rate.
+PRICE_PER_MTOK = {"input": 3.0, "output": 15.0}
 
 DEFAULT_CAP_USD = 5.0
 DEFAULT_LEDGER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".spend.json")

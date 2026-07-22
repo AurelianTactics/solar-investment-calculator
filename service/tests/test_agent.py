@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 import solar_calc  # noqa: E402
 from agent import Agent, Extraction, cache_version  # noqa: E402
 from cache import ExtractionCache  # noqa: E402
-from spend import SpendLedger  # noqa: E402
+from spend import SpendLedger, cost_usd  # noqa: E402
 
 SERVICE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -143,8 +143,8 @@ class TestStructuredErrors:
         def counting(question):
             calls.append(question)
             return Extraction(option="community", inputs={})
-        agent = make_agent(tmp_path, counting, cap=1.0)
-        agent.ledger.record(200_000, 0)  # $1.00 -> at cap
+        agent = make_agent(tmp_path, counting, cap=cost_usd(200_000, 0))
+        agent.ledger.record(200_000, 0)  # lands exactly on the cap (inclusive ceiling)
         payload = agent.answer("q")
         assert payload["error"] == "cap_exceeded"
         assert calls == []  # the cap is a ceiling: no LLM call was attempted
@@ -166,7 +166,7 @@ class TestHttpSurface:
     def test_cap_exceeded_shape_over_http(self, tmp_path):
         client = self._client(tmp_path, stub("community"))
         import app as app_module
-        app_module._agent.ledger.record(1_000_000, 0)  # $5 -> over the $5 default cap
+        app_module._agent.ledger.record(2_000_000, 0)  # $6 -> over the $5 default cap
         res = client.post("/ask", json={"question": "q"})
         assert res.status_code == 200
         assert res.json()["error"] == "cap_exceeded"

@@ -23,11 +23,11 @@ def make_ledger(tmp_path, cap=5.0):
 
 
 class TestCost:
-    def test_opus_prices(self):
-        # claude-opus-4-8: $5/MTok in, $25/MTok out.
-        assert cost_usd(1_000_000, 0) == pytest.approx(5.0)
-        assert cost_usd(0, 1_000_000) == pytest.approx(25.0)
-        assert cost_usd(1000, 500) == pytest.approx(0.005 + 0.0125)
+    def test_sonnet_prices(self):
+        # claude-sonnet-5: $3/MTok in, $15/MTok out (standard rate).
+        assert cost_usd(1_000_000, 0) == pytest.approx(3.0)
+        assert cost_usd(0, 1_000_000) == pytest.approx(15.0)
+        assert cost_usd(1000, 500) == pytest.approx(0.003 + 0.0075)
 
 
 class TestLedger:
@@ -35,17 +35,18 @@ class TestLedger:
         ledger = make_ledger(tmp_path)
         ledger.record(1000, 500)
         ledger.record(1000, 500)
-        assert ledger.total_usd == pytest.approx(2 * (0.005 + 0.0125))
+        assert ledger.total_usd == pytest.approx(2 * cost_usd(1000, 500))
 
     def test_persists_across_restarts(self, tmp_path):
-        make_ledger(tmp_path).record(200_000, 40_000)  # 1.0 + 1.0 = $2
+        make_ledger(tmp_path).record(200_000, 40_000)  # some spend, exact rate aside
         reopened = make_ledger(tmp_path)               # a fresh process reading the same file
-        assert reopened.total_usd == pytest.approx(2.0)
+        assert reopened.total_usd == pytest.approx(cost_usd(200_000, 40_000))
 
     def test_blocks_when_cap_reached(self, tmp_path):
-        ledger = make_ledger(tmp_path, cap=1.0)
+        boundary = cost_usd(200_000, 0)                # cap set to exactly one recording's cost
+        ledger = make_ledger(tmp_path, cap=boundary)
         assert not ledger.over_cap
-        ledger.record(200_000, 0)  # $1.00 — the cap is a ceiling: >= blocks
+        ledger.record(200_000, 0)  # lands exactly on the cap — the ceiling is inclusive (>= blocks)
         assert ledger.over_cap
 
     def test_corrupt_ledger_fails_closed(self, tmp_path):
@@ -76,15 +77,15 @@ class TestDailyWindow:
         path.write_text(json.dumps({"day": "2020-01-01", "total_usd": 99.0, "calls": 7}),
                         encoding="utf-8")
         ledger = SpendLedger(path=str(path), cap_usd=5.0)
-        ledger.record(200_000, 0)                      # $1.00
-        assert ledger.total_usd == pytest.approx(1.0)  # not 100.0
+        ledger.record(200_000, 0)
+        assert ledger.total_usd == pytest.approx(cost_usd(200_000, 0))  # this call only, not 100.0
         assert json.loads(path.read_text(encoding="utf-8"))["day"] == SpendLedger.today()
 
     def test_same_day_still_accumulates(self, tmp_path):
         ledger = make_ledger(tmp_path)
         ledger.record(200_000, 0)
         ledger.record(200_000, 0)
-        assert ledger.total_usd == pytest.approx(2.0)
+        assert ledger.total_usd == pytest.approx(2 * cost_usd(200_000, 0))
 
     def test_a_pre_daily_window_file_reads_as_a_new_day(self, tmp_path):
         # Files written by the cumulative-forever version carry no "day" key at all. Treating
