@@ -43,9 +43,17 @@ Optional, all with working defaults — set them only if you want different numb
 | `SOLAR_FEEDBACK_MIN_FREE_BYTES` | `209715200` (200 MB) | Free space the log refuses to eat into, so the spend ledger always has room. |
 | `SOLAR_EVENTS_RATE_LIMIT_PER_MINUTE` | `30` | Per-IP limit on `/events`, in its own bucket so it can't starve `/ask`. |
 
-`RAILWAY_PUBLIC_DOMAIN` is injected by Railway and picked up automatically — you don't set it. It's
-what gets the deploy's own hostname onto the MCP server's allowed-host list; without it every `/mcp`
-request would be rejected as an invalid Host.
+| `SOLAR_MCP_ALLOWED_HOSTS` | your Railway domain, e.g. `solar-options.up.railway.app` | **Required.** Puts the deploy's hostname on the MCP server's allowed-host list. Without it every `/mcp` request is rejected `421 Invalid Host header`. |
+
+> **Correction (2026-07-29).** This document previously said `RAILWAY_PUBLIC_DOMAIN` "is injected by
+> Railway and picked up automatically — you don't set it." **That is false on Railway's current
+> runtime.** The variable is listed in the dashboard and by `railway variables`, but it is *not*
+> present in the container's environment (`railway ssh "printenv | grep RAILWAY"` confirms it —
+> `RAILWAY_PRIVATE_DOMAIN` and `RAILWAY_VOLUME_MOUNT_PATH` are there, the public domain is not). The
+> result was that `/mcp` returned 421 to every request for the entire first week of the deploy while
+> `/health` happily returned 200. Set `SOLAR_MCP_ALLOWED_HOSTS` explicitly. `configure_http()` now
+> also reads `RAILWAY_STATIC_URL` as a fallback and normalizes URL-shaped values, but do not rely on
+> injection — set the variable.
 
 ### 3. Attach a volume at `/data`
 
@@ -72,58 +80,107 @@ limit. If you ever need to scale, that's the thing to move first, not a knob to 
 
 ## What to check once it's up
 
-Substitute your domain. Each of these is a claim the code makes that only a real deploy can settle.
+> ### Verification pass, 2026-07-29 — all six checks pass
+>
+> Run against `https://solar-options.up.railway.app`. Three failures were found and fixed; the
+> results below are after the fixes.
+>
+> | # | Check | Result |
+> |---|---|---|
+> | 1 | Page served same-origin | **pass** |
+> | 2 | `/health` reports daily spend + log size, path under `/data` | **pass** |
+> | 3 | `/ask` answers through the agent | **pass** — served from the extraction cache, $0.00 |
+> | 4 | Per-IP rate limit on `/events` | **pass** — 28 accepted, 7 `rate_limited` |
+> | 5 | `/mcp` reachable, no auth | **pass** — four tools; `calculate` returns steps + assumptions |
+> | 6 | `/events` accepts a batch, refuses oversized | **pass** |
+> | — | **Volume persists across redeploy** | **pass** — 38,864 → 39,750 → 55,965 bytes across three deploys, never reset |
+> | — | SSH into the container | **pass** — `railway ssh "<cmd>"` works non-interactively |
+>
+> **What was broken and is now fixed:**
+>
+> 1. **`/mcp` returned 421 to every request** — the `RAILWAY_PUBLIC_DOMAIN` correction above.
+> 2. **The deploy died on the first rebuild.** `requirements.txt` had floors and no ceilings;
+>    `mcp>=1.2` resolved to the day-old 2.0.0, which moved `mcp.server.fastmcp`, and the app failed
+>    to import. The site had been surviving on a build cached since 2026-07-21 and would have broken
+>    on *any* rebuild. All dependencies now carry major-version ceilings (`4bbd568`).
+> 3. **`assumption_edited` never fired for the two shared inputs** (bill and usage) — they
+>    recomputed and retagged without calling `track()`, so the sharpest signal in S3 was missing
+>    exactly where edits are densest (`16c1c47`).
+>
+> **Known, not yet fixed** — all in `docs/BACKLOG.md` Tier 1, with a plan at
+> `docs/plans/2026-07-29-001-feat-deploy-hardening.md`:
+>
+> - **Static assets have no cache-busting.** A deployed `web/app.js` does *not* reach a browser
+>   holding the old one. Verified live. For instrumentation changes this fails silently.
+> - **No post-deploy smoke check.** `/health` returned 200 through all three failures above.
+> - **No favicon** — a 404 on every page load.
+>
+> **Event log after the pass:** 157 `request`, 90 `option_selected`, 11 `ask` (all `intent:
+> calculate`), 2 `feedback`, 1 `compared`, 1 `mcp_tool_call`. Every `kind` the plan specifies has
+> now been observed end-to-end in production except `assumption_edited`, which was verified against
+> a local service after the fix and is deployed.
 
-```sh
+Each of these is a claim the code makes that only a real deploy can settle. The commands below are
+**PowerShell** (`Invoke-RestMethod` parses the JSON for you); set `$app` once and paste each block.
+On another shell the bash originals are in this file's git history, or run them from WSL.
+
+```powershell
+$app = "https://solar-options.up.railway.app"   # your generated Railway domain
+
 # 1. The page is served, same-origin with the agent.
-curl -s https://<app>.up.railway.app/ | head -5
+(Invoke-WebRequest "$app/").Content.Substring(0, 200)
 
 # 2. Health reports today's spend against the DAILY cap, AND the log's size against its ceiling.
-curl -s https://<app>.up.railway.app/health
-#    -> {"ok":true,"spend_usd_today":0.0,"cap_usd_per_day":1.0,"day":"2026-07-21",
-#        "log":{"path":"/data/.feedback.jsonl","bytes":...,"accepting":true,...}}
+Invoke-RestMethod "$app/health" | ConvertTo-Json -Depth 5
+#    -> ok=True; spend_usd_today=0.0; cap_usd_per_day=1.0; day=2026-07-21;
+#       log = { path=/data/.feedback.jsonl; bytes=...; accepting=True; ... }
 #    The path is the thing to read here: if it does NOT say /data, SOLAR_FEEDBACK_PATH didn't take
 #    and you are logging to a disk that disappears on the next deploy.
 
 # 3. The agent answers. This is the only call that costs money.
-curl -s -X POST https://<app>.up.railway.app/ask \
-  -H 'content-type: application/json' \
-  -d '{"question":"Is rooftop solar worth it if I use 9000 kWh a year?"}' | head -20
+Invoke-RestMethod "$app/ask" -Method Post -ContentType 'application/json' `
+  -Body '{"question":"Is rooftop solar worth it if I use 9000 kWh a year?"}' |
+  ConvertTo-Json -Depth 8
 
-# 4. The rate limit sees YOU, not Railway's proxy. Fire 12 quickly; the last few must come back
-#    {"error":"rate_limited"}. If NONE of them do, --proxy-headers isn't taking effect and every
-#    visitor is sharing one bucket keyed on the proxy — that's the failure to look for.
-for i in $(seq 1 12); do
-  curl -s -X POST https://<app>.up.railway.app/ask -H 'content-type: application/json' \
-    -d '{"question":"test '"$i"'"}' | head -c 60; echo
-done
+# 4. The rate limiter
+1..35 | ForEach-Object {
+  $r = Invoke-RestMethod "$app/events" -Method Post -ContentType 'application/json' `
+    -Body '{"events":[{"kind":"option_selected","option":"rooftop"}]}'
+  "$_`: ok=$($r.ok) $($r.error)"
+}
+# expect: ~30 -> ok=True, then the rest -> ok=False rate_limited
 
 # 5. MCP is reachable and needs no auth.
-curl -s -X POST https://<app>.up.railway.app/mcp \
-  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+Invoke-RestMethod "$app/mcp" -Method Post -ContentType 'application/json' `
+  -Headers @{ accept = 'application/json, text/event-stream' } `
+  -Body '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | ConvertTo-Json -Depth 8
 #    -> the four tools: list_options, get_assumptions, calculate, compare
 
 # 6. The event endpoint accepts a batch and refuses an oversized one.
-curl -s -X POST https://<app>.up.railway.app/events \
-  -H 'content-type: application/json' \
-  -d '{"events":[{"kind":"option_selected","option":"rooftop"}]}'
-#    -> {"ok":true,"written":1}
+Invoke-RestMethod "$app/events" -Method Post -ContentType 'application/json' `
+  -Body '{"events":[{"kind":"option_selected","option":"rooftop"}]}'
+#    -> ok=True; written=1
 
-curl -s -X POST https://<app>.up.railway.app/events \
-  -H 'content-type: application/json' \
-  -d "{\"events\":[{\"kind\":\"feedback\",\"text\":\"$(head -c 5000 /dev/zero | tr '\0' 'x')\"}]}"
+$big = 'x' * 5000
+try {
+  Invoke-RestMethod "$app/events" -Method Post -ContentType 'application/json' `
+    -Body (@{ events = @(@{ kind = 'feedback'; text = $big }) } | ConvertTo-Json)
+} catch { $_.ErrorDetails.Message }
 #    -> {"ok":false,"error":"too_large"}
+#    Correction (2026-07-29): this comes back as HTTP **200** with ok=false, not a 4xx, so the
+#    try/catch never fires and $_.ErrorDetails is empty. Read the response body instead. That is
+#    consistent with the rest of the service — application-level conditions are 200 with an
+#    `error` field, transport failures are status codes (see service/app.py's module docstring).
 ```
 
 **The one check that needs two deploys — does the volume actually persist?** This is the claim no
 test can make, and the instrumentation is worthless if it's false:
 
-```sh
+```powershell
 # Before: note the byte count.
-curl -s https://<app>.up.railway.app/health   # -> "log":{"bytes":4210,...}
+(Invoke-RestMethod "$app/health").log.bytes    # -> e.g. 4210
 # Now push any trivial commit, wait for the redeploy, and ask again.
-curl -s https://<app>.up.railway.app/health   # bytes must be >= what it was, NEVER back to 0
+(Invoke-RestMethod "$app/health").log.bytes    # must be >= what it was, NEVER back to 0
 ```
 
 A reset to `0` means the volume isn't mounted where the app is writing, and every event so far is
