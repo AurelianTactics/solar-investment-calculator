@@ -98,6 +98,28 @@ function track(kind, fields) {
   } catch (e) { /* telemetry must never be why a click did nothing */ }
 }
 
+// One shared input (the bill, the usage) reported as an `assumption_edited` like any ledger row,
+// so both surfaces produce the same event shape and the log can be read without knowing which
+// widget an edit came from.
+//
+// The outgoing tag has to be remembered rather than read back at commit time: the `input` handler
+// retags the pill on every keystroke, so by the time `change` fires the DOM already describes the
+// NEW state. What the research finding needs is what the value was *before* — a correction away
+// from a sourced default means something different than one away from the user's own last guess.
+function trackSharedEdit(input, key, defaultValue) {
+  const read = () => (input.value === "" ? null : parseFloat(input.value));
+  let prev = read();
+  let prevTag = TAGS.DEFAULT_SOURCED;
+  input.addEventListener("change", () => {
+    const to = read();
+    if (to === prev || (to !== null && isNaN(to))) return;   // a no-op commit is not an edit
+    track("assumption_edited", { key, option: inCompare() ? compareKeys.join(",") : currentOption,
+                                 from: prev, to, tag: prevTag });
+    prev = to;
+    prevTag = (to === null || to === defaultValue) ? TAGS.DEFAULT_SOURCED : TAGS.USER_PROVIDED;
+  });
+}
+
 // `keepalive` so a flush fired from visibilitychange survives the page going away — the last thing
 // someone did before leaving is exactly the event worth having.
 function flushEvents() {
@@ -1791,6 +1813,13 @@ function initPage() {
     pill.className = billEdited ? "tag tag-user" : "tag tag-sourced";
     recompute();
   });
+  // The two SHARED inputs are assumptions too — they render with the same tags and the same
+  // sourced defaults as any ledger row, and they are the two numbers a visitor is most likely to
+  // correct. They were recomputing and retagging without ever being tracked, so the sharpest
+  // signal in S3 was missing exactly where it is densest. Tracked on `change`, not `input`, for
+  // the same reason the ledger rows are: `input` fires per keystroke, and "168.41 -> 2 -> 22 ->
+  // 220" is four events describing one correction.
+  trackSharedEdit(billInput, "default_monthly_bill", DEFAULT_MONTHLY_BILL);
   const usageInput = document.getElementById("annual-usage");
   usageInput.addEventListener("input", () => {
     usageEdited = usageInput.value !== "";
@@ -1798,6 +1827,7 @@ function initPage() {
     recompute();
     syncUsageValueAndTag();   // retag; the box itself is left alone while it has focus
   });
+  trackSharedEdit(usageInput, USAGE_KEY, null);
   // On blur, show what's actually in force — clearing the box falls back to a sourced default
   // rather than to nothing, so the box must say so instead of sitting misleadingly empty.
   usageInput.addEventListener("change", () => syncUsageValueAndTag());
