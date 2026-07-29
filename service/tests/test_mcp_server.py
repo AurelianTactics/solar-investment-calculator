@@ -126,6 +126,35 @@ class TestTransportConfig:
         finally:
             mcp.settings.transport_security.allowed_hosts = before
 
+    def test_a_host_is_found_when_railway_does_not_inject_its_own_domain(self, monkeypatch):
+        """The 2026-07-28 production bug: RAILWAY_PUBLIC_DOMAIN showed in `railway variables` but
+        was absent from the container, so the allow-list stayed localhost-only and every public
+        /mcp request was 421. Any one of the vars has to be enough on its own."""
+        import mcp_server
+
+        monkeypatch.delenv("RAILWAY_PUBLIC_DOMAIN", raising=False)
+        monkeypatch.delenv("SOLAR_MCP_ALLOWED_HOSTS", raising=False)
+        monkeypatch.setenv("RAILWAY_STATIC_URL", "solar-options.up.railway.app")
+        before = list(mcp.settings.transport_security.allowed_hosts)
+        try:
+            mcp_server.configure_http()
+            assert "solar-options.up.railway.app" in mcp.settings.transport_security.allowed_hosts
+        finally:
+            mcp.settings.transport_security.allowed_hosts = before
+
+    def test_a_host_given_as_a_url_is_normalized(self, monkeypatch):
+        """RAILWAY_STATIC_URL has been both a bare host and a full URL across platform versions;
+        the Host header is only ever the bare host, so a scheme must not reach the allow-list."""
+        import mcp_server
+
+        monkeypatch.setenv("SOLAR_MCP_ALLOWED_HOSTS", "https://solar-options.up.railway.app/")
+        before = list(mcp.settings.transport_security.allowed_hosts)
+        try:
+            mcp_server.configure_http()
+            assert "solar-options.up.railway.app" in mcp.settings.transport_security.allowed_hosts
+        finally:
+            mcp.settings.transport_security.allowed_hosts = before
+
     def test_http_mode_is_stateless(self, monkeypatch):
         import mcp_server
 

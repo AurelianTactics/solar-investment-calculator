@@ -66,6 +66,31 @@ This is a proof of concept built on general Maine defaults — not financial adv
 mcp = FastMCP("maine-solar-calculator", instructions=INSTRUCTIONS)
 
 
+#: Env vars that may carry the deploy's own public hostname, in priority order. More than one
+#: because *none of them is guaranteed to be present*: on the 2026-07 Railway runtime (v2), a
+#: service with a generated domain had ``RAILWAY_PUBLIC_DOMAIN`` visible in the dashboard and in
+#: ``railway variables`` but **absent from the container's actual environment**, which silently
+#: turned every public /mcp request into a 421. Reading several and letting the explicit override
+#: win costs four lines and removes a failure mode that is invisible until a connector tries.
+_HOST_ENV_VARS = ("SOLAR_MCP_ALLOWED_HOSTS", "RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL")
+
+
+def _configured_hosts() -> list[str]:
+    """Every hostname this deploy should answer to, scheme- and slash-stripped.
+
+    Values arrive in inconsistent shapes — ``RAILWAY_STATIC_URL`` has historically been both a bare
+    host and a full URL — so normalize rather than trusting the format. Order is preserved and
+    duplicates dropped so the allow-list stays readable in a traceback.
+    """
+    hosts: list[str] = []
+    for var in _HOST_ENV_VARS:
+        for raw in os.environ.get(var, "").split(","):
+            host = raw.strip().split("://")[-1].strip("/").strip()
+            if host and host not in hosts:
+                hosts.append(host)
+    return hosts
+
+
 def configure_http() -> None:
     """Settings that only apply when this server is reached over HTTP rather than stdio.
 
@@ -76,19 +101,18 @@ def configure_http() -> None:
 
     **DNS-rebinding protection stays on, with the deploy's host allowed.** The SDK defaults to
     localhost-only, which is right for a locally bound server and wrong for a public one: unset,
-    the deploy would reject every request as an invalid Host. Railway exposes its domain as
-    ``RAILWAY_PUBLIC_DOMAIN``, so the correct host is picked up automatically;
-    ``SOLAR_MCP_ALLOWED_HOSTS`` (comma-separated) covers a custom domain or a test harness. Note
-    this is not the protection that matters here — there is no local privilege to steal from a
-    public calculator — but silently disabling a security default is worse than configuring it.
+    the deploy would reject every request as an invalid Host. The host is read from
+    ``_HOST_ENV_VARS`` — set ``SOLAR_MCP_ALLOWED_HOSTS`` (comma-separated) explicitly rather than
+    relying on the platform to inject its own domain, which it does not reliably do. Note this is
+    not the protection that matters here — there is no local privilege to steal from a public
+    calculator — but silently disabling a security default is worse than configuring it.
     """
     mcp.settings.stateless_http = True
     mcp.settings.json_response = True
 
-    extra = [h.strip() for h in os.environ.get("SOLAR_MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
-    domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
-    if domain:
-        extra += [domain, f"{domain}:*"]
+    extra: list[str] = []
+    for host in _configured_hosts():
+        extra += [host, f"{host}:*"]
     if extra:
         sec = mcp.settings.transport_security
         sec.allowed_hosts = list(sec.allowed_hosts) + extra

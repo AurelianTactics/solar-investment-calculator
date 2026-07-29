@@ -5,11 +5,17 @@
 #
 # The calculation core (src/) and the deterministic verifier (tools/) remain stdlib-only;
 # only service/ and the test runner need any of this.
-langgraph>=1.2
-langchain-anthropic>=0.3
-fastapi>=0.115
-uvicorn>=0.30
-httpx>=0.27
-python-dotenv>=1.0
-mcp>=1.2
-pytest>=8
+# Every bound has a CEILING, and that is not tidiness. On 2026-07-29 the first rebuild since
+# 2026-07-21 took the deploy down: `mcp>=1.2` resolved to the day-old 2.0.0, which moved
+# `mcp.server.fastmcp`, and service/app.py failed to import at startup. Nothing in the repo had
+# changed — the deploy was surviving on a cached build, one rebuild away from breaking at any
+# time, and the local venv (mcp 1.28.1) could never have caught it. Raise a ceiling deliberately,
+# with the tests and a deploy to back it up; never let a resolver raise it for you.
+langgraph>=1.2,<2
+langchain-anthropic>=0.3,<2
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+httpx>=0.27,<1
+python-dotenv>=1.0,<2
+mcp>=1.28,<2
+pytest>=8,<10
