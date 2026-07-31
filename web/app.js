@@ -11,10 +11,11 @@
 // view (renders `.cmp-table`, plus one `details.opt-sec` ledger section per compared option in
 // #detail, each rendering `.step-label`); results render `.big` and `.step-label`; the question
 // box is `#question`; the fallback notice is `#notice.show` and its text always contains "without
-// the agent". The headline renders into the sticky `#result` card; steps + assumptions render
-// into `#detail` inside the "Refine this estimate" drawer; the tighter-estimate tip renders into
-// `#tip-body` under the Ask box. `#copy-link` (optional — wired only if present) copies the
-// scenario URL, and `#feedback-row` (also optional) is the thumbs + note row.
+// the agent". The headline renders into the `#result` card, and a condensed copy of it into the
+// fixed `#peek` bar, which reveals itself once `#result` has scrolled away; steps + assumptions
+// render into `#detail` inside the "Refine this estimate" drawer; the tighter-estimate tip
+// renders into `#tip-body` under the Ask box. `#copy-link` (optional — wired only if present)
+// copies the scenario URL, and `#feedback-row` (also optional) is the thumbs + note row.
 //
 // INSTRUMENTATION is fire-and-forget and never on a render path — see the note by EVENTS_URL. The
 // page must behave identically with /events unreachable, refusing, or absent, which is exactly how
@@ -393,19 +394,19 @@ function touSharedDefaults() {
     annual_usage_kwh: A("annual_usage_kwh", "Your annual electricity usage", 6600, "kWh", TAGS.DEFAULT_SOURCED,
       S("Typical CMP residential usage (~550 kWh/month)", null, "Scales the time-of-use enrollment discount (usage × $0.058120/kWh ceiling). Edit to your own annual kWh.",
         "A modeling choice: ~550 kWh/month is the typical CMP residential figure used across the state's own rate documents. Replace it with the actual total from twelve months of your own bills."),
-      "How much electricity your home uses in a year. In the time-of-use model it scales the enrollment discount: every kWh you use earns the flat-vs-off-peak delivery discount just by being enrolled, so a bigger home has a bigger arbitrage ceiling. Your utility bill's usage history has the real number — use it."),
+      "How much electricity your home uses in a year. Every kilowatt-hour you use outside peak hours earns the time-of-use discount, so the more you use, the more switching rates is worth. Your utility bill's usage history has your real number — use it."),
     on_peak_share: A("on_peak_share", "Share of your usage during on-peak hours (weekday 5–9 p.m.)", 0.25, "fraction", TAGS.UNSOURCED, null,
-      "The fraction of your electricity used on weekdays between 5 and 9 p.m. — the single number that decides which time-of-use case you're in. Under 15.8%, the time-of-use rate beats the flat rate even with no battery (free money by enrolling); over it, the on-peak penalty (3.6× the flat rate) bites and a battery has to rescue you. Nobody can guess this for you: download your hourly usage from your utility's website and measure it. The 25% default is only a placeholder for a typical evening-heavy home."),
+      "The fraction of your electricity used on weekdays between 5 and 9 p.m. — the single number that decides whether switching to the time-of-use rate helps you or hurts you. Keep it under about 16% and that rate beats the flat rate on its own, with no battery needed. Above that, those four hours cost enough to wipe out the gain, and a battery has to make up the difference. Nobody can guess this for you: download your hourly usage from your utility's website and measure it. The 25% default is only a placeholder for a typical evening-heavy home."),
     residual_coverage: A("residual_coverage", "Share of on-peak usage the battery can actually shift off-peak", 0.7, "fraction", TAGS.UNSOURCED, null,
-      "How much of your 5–9 p.m. load the battery can actually serve. A single-outlet plug-in unit covers whatever is plugged into it; a multi-circuit subpanel setup covers more. The hard part is winter electric heat — often the biggest on-peak load and exactly what a small battery can't carry — which is why this dial (0.5–0.9 is the plausible range) is the model's load-bearing unknown. No researched Maine figure has landed; 0.7 is a placeholder."),
+      "How much of your 5–9 p.m. load the battery can actually serve. A single-outlet plug-in unit covers whatever is plugged into it; a multi-circuit subpanel setup covers more. The hard part is winter electric heat — often the biggest on-peak load and exactly what a small battery can't carry — which is why this is the least certain number here, and the one most worth thinking hard about (0.5–0.9 is the believable range). No researched Maine figure exists yet, so 0.7 is a placeholder."),
     enrollment_discount_per_kwh: A("enrollment_discount_per_kwh", "Time-of-use enrollment discount per kWh (flat minus off-peak delivery, CMP)", 0.058120, "$/kWh", TAGS.DEFAULT_SOURCED,
       S("CMP time-of-use delivery-rate tariff (eff. Jul 1, 2026): $0.119590 flat − $0.061470 off-peak", CMP_TOU_URL,
         "Versant's 'Home Eco' time-of-use rate (BHD Rate A-4 / MPD A-4M) has a much thinner spread — set this and the penalty so their difference matches its ~$0.101 (BHD) / ~$0.099 (MPD) peak-vs-off-peak gap; its on-peak runs only ~6% above flat, so enrolling there is nearly risk-free and works weekends too.", WHAT_CMP_TOU),
-      "What every kWh you use earns simply by being enrolled in the time-of-use rate, as long as it's bought off-peak: the flat delivery rate ($0.119590) minus the off-peak delivery rate ($0.061470). Multiply by your annual usage and you have the absolute ceiling on time-of-use savings — what a magic free battery covering everything would earn. Delivery-only: the supply price is the same on both rates and cancels out."),
+      "What each kilowatt-hour saves you just by being on the time-of-use rate instead of the flat one — as long as you use it outside the 5–9 p.m. peak. Multiply by your yearly usage and you get the most time-of-use could ever save you, before any battery. It counts delivery charges only: supply costs the same on both rates, so switching doesn't change it."),
     residual_penalty_per_kwh: A("residual_penalty_per_kwh", "On-peak penalty per residual kWh (on-peak minus off-peak delivery, CMP)", 0.367366, "$/kWh", TAGS.DEFAULT_SOURCED,
       S("CMP time-of-use delivery-rate tariff (eff. Jul 1, 2026): $0.428836 on-peak − $0.061470 off-peak", CMP_TOU_URL,
         "The threshold on-peak share (below which time-of-use beats flat with no battery) is discount ÷ penalty = 0.1582 — matching CMP's own '≥86% off-peak' guidance. Versant Home Eco's penalty is only ~$0.10 with on-peak ~6% above flat: thin arbitrage, near-zero enrollment risk.", WHAT_CMP_TOU),
-      "What every kWh you still buy during weekday 5–9 p.m. costs you versus buying it off-peak: the on-peak delivery rate ($0.428836, about 3.6× the flat rate) minus the off-peak rate ($0.061470). It's also what every kWh a battery SHIFTS off-peak avoids — but it is the penalty avoided, not the saving versus the flat rate, which is why the model never multiplies it by your whole usage."),
+      "The extra you pay for each kilowatt-hour you still buy during weekday 5–9 p.m., compared with buying it outside those hours. On CMP's time-of-use rate those four hours cost roughly three and a half times the flat rate, which is what makes that rate risky without a battery. It applies only to what you use inside that window — never to your whole bill."),
   };
 }
 
@@ -427,7 +428,7 @@ const OPTIONS = {
     defaults: () => ({
       price_per_kwh: A("price_per_kwh", "All-in residential price per kWh (CMP)", 0.306, "$/kWh", TAGS.DEFAULT_SOURCED,
         S("Maine DOE — Electricity Prices (CMP, eff. Jan 1 2026)", "https://www.maine.gov/energy/electricity-prices", "Display-only in the bill-first flow; resets each Jan 1.", WHAT_MAINE_DOE),
-        "The all-in price you pay for each unit (kilowatt-hour) of electricity — supply, delivery, and the fixed monthly charge averaged in. The calculator uses it to translate your dollar bill into an electricity amount. In the bill-first flow it barely moves the dollar savings (it cancels out of the math); what it changes is the usage figure shown."),
+        "What one kilowatt-hour of electricity costs you, all in — supply, delivery, and the fixed monthly fee spread across your usage. You gave us your bill in dollars; this is what turns that into kilowatt-hours, which is the usage figure in step 2. If this rate is a little off for your house, your savings estimate doesn't change — only the usage figure does. Rates reset every January 1, and Versant territory differs from CMP."),
       bill_offset_fraction: A("bill_offset_fraction", "Portion of the bill a community-solar credit offsets (CMP)", 0.82, "fraction", TAGS.DEFAULT_SOURCED,
         S("Maine OPA + Maine DOE — credit offsets per-kWh charges, not the fixed charge", "https://www.maine.gov/meopa/electricity/renewable-energy/community_solar", "(bill − fixed)/bill ≈ 0.82 for a 550 kWh CMP bill; rises with usage.",
           "Consumer guidance from Maine's Office of the Public Advocate — the state agency whose whole job is representing ratepayers — combined with the Maine DOE's official rate tables. Government consumer-protection material, not a solar seller's pitch."),
@@ -435,7 +436,7 @@ const OPTIONS = {
       subscription_discount_pct: A("subscription_discount_pct", "Subscription discount on the credit value you keep", 0.15, "fraction", TAGS.DEFAULT_SOURCED,
         S("Maine OPA (10–15%) + Solar Gardens (guaranteed 15% on CMP credits)", "https://www.maine.gov/meopa/electricity/renewable-energy/community_solar", "Discount on credits, which offset ~82% of the bill → ~12% off the total bill.",
           "Two sources: the Maine Office of the Public Advocate (a state ratepayer-advocate agency) publishes the typical 10–15% range in its consumer guidance, and Solar Gardens — an actual Maine community-solar provider — publicly guarantees 15% on CMP credits. Neutral government guidance plus a real market offer you can verify."),
-        "Community solar works like buying gift cards at a markdown: the solar farm puts bill credits on your account, you pay the farm for those credits at a discount, and the discount is the only money you actually keep. At 15%, every $100 of credits costs you $85 — $15 stays in your pocket. A bigger discount means proportionally bigger savings, which makes this the single biggest lever in the whole estimate."),
+        "Community solar works like buying gift cards at a markdown: the solar farm puts bill credits on your account, you pay the farm for those credits at a discount, and the discount is the only money you actually keep. If the discount is 15%, every $100 of credits costs you $85 — $15 stays in your pocket. A bigger discount means proportionally bigger savings, which makes this the single biggest lever in the whole estimate."),
       allocation_pct: A("allocation_pct", "Share of your usage the subscription is sized to cover", 1.0, "fraction", TAGS.DEFAULT_SOURCED,
         S("Modeling choice: size the subscription to your usage", null, "Over-subscribing wastes credits (they expire after 12 months).", WHAT_MODELING_CHOICE),
         "How big a subscription you buy, measured against your own electricity usage. At 100%, your share of the solar farm is sized to generate credits covering essentially all of your usage. Below 100% you're only saving on part of your bill; above 100% is actively wasteful, because credits you can't use expire after 12 months — you'd be paying the farm for credits that vanish."),
@@ -470,7 +471,7 @@ const OPTIONS = {
         S("NRCM — U.S. kits ~$1,000–1,500 (falling)", "https://www.nrcm.org/blog/what-to-know-maines-new-plug-in-solar-law/", "Midpoint of the range; an 800 W Ikea kit is ~$500 in Germany.", WHAT_NRCM),
         "The purchase price of the panel-plus-microinverter kit itself — most of the upfront cost. Payback scales directly with it: a $500 kit with the same output pays back in less than half the time of a $1,200 one. Prices are falling fast, so shopping around genuinely changes the verdict."),
       electrician_cost: A("electrician_cost", "Electrician install cost (required over 420 W)", 300, "$", TAGS.UNSOURCED, null,
-        "What an electrician charges to check your circuit and install the dedicated outlet Maine requires for plug-in kits over 420 W. It adds straight to the upfront cost and stretches the payback. No researched Maine figure has landed yet — $300 is a placeholder, so get a local quote and put the real number in."),
+        "What an electrician charges to check your circuit and install the dedicated outlet Maine requires for plug-in kits over 420 W. It adds straight to the upfront cost and stretches the payback. No researched Maine figure has landed yet — the default here is a placeholder, so get a local quote and put the real number in."),
       ...capitalDefaults(),
     }),
     run: (a) => computeBalcony({
@@ -493,20 +494,20 @@ const OPTIONS = {
         "How much electricity one kilowatt of panels produces over a year in Maine's real climate — clouds, snow, and winter sun angles included. A shaded roof, a steep north face, or heavy snow cover pulls it down; an ideal south-facing pitch can beat it slightly."),
       installed_cost_per_w: A("installed_cost_per_w", "Installed cost per watt (Maine)", 2.95, "$/W", TAGS.DEFAULT_SOURCED,
         S("EnergySage — Maine average $2.95/W (May 2026), before incentives", "https://www.energysage.com/local-data/solar-panel-cost/me/", null, WHAT_ENERGYSAGE),
-        "The going rate for professionally installed rooftop solar in Maine, per watt of capacity — panels, inverter, racking, labor, permitting, all of it. It's the denominator of the whole investment case: every dime off this number shortens payback, which is why competing quotes matter more than any other shopping step."),
+        "The going rate for professionally installed rooftop solar in Maine, per watt of capacity — panels, inverter, racking, labor, permitting, all of it. It's the biggest single number in the whole investment case: every dime off it shortens your payback, which is why getting competing quotes matters more than any other shopping step."),
       federal_itc_pct: A("federal_itc_pct", "Federal tax credit on system cost", 0.0, "fraction", TAGS.DEFAULT_SOURCED,
         S("Federal 25D residential solar credit EXPIRED Dec 31, 2025 (was 30%)", "https://homes.rewiringamerica.org/federal-incentives/25d-rooftop-solar-tax-credit", "A 2026 cash/loan buyer gets $0. Set to 0.30 only if installed by the 2025 deadline.", WHAT_REWIRING),
         "The share of the system's cost the federal government returns to you as a tax credit. For years it was 30% — but the residential credit (called 25D) expired December 31, 2025, so a 2026 cash or loan buyer gets zero. That one change added years to typical Maine paybacks."),
       credit_value_per_kwh: A("credit_value_per_kwh", "NEB credit value per kWh (volumetric, CMP)", 0.27, "$/kWh", TAGS.DEFAULT_SOURCED,
         S("Maine DOE — CMP per-kWh charge a NEB credit offsets", "https://www.maine.gov/energy/electricity-prices", null, WHAT_MAINE_DOE),
-        "What each net-energy-billing (NEB) credit is worth. Every kWh your panels send to the grid earns a credit that offsets the per-kWh portion of your bill — but, like all credits, it can never touch the fixed monthly charge, so its value is the volumetric rate, not the all-in price."),
+        "What each unit of electricity your panels send to the grid is worth. Maine credits you for it under a program called net energy billing, and that credit comes off the per-unit part of your next bill. It can't touch the fixed monthly connection fee, though, so it's worth the per-unit rate rather than your all-in price. When electricity prices rise, an existing system earns more."),
       annual_usage_kwh: A("annual_usage_kwh", "Your annual electricity usage", 6600, "kWh", TAGS.DEFAULT_SOURCED,
         S("Typical CMP residential usage (~550 kWh/month)", null, "Caps the value of generation (NEB credits beyond usage expire).",
           "A modeling choice: ~550 kWh/month is the typical CMP residential figure used across the state's own rate documents. Replace it with the actual total from twelve months of your own bills."),
         "How much electricity your home actually uses in a year. It caps what solar can earn you: generation beyond your usage produces credits that expire after 12 months, worth roughly nothing. Replacing this default with your own figure is the single most valuable personalization you can make."),
       offset_cap_fraction: A("offset_cap_fraction", "Share of usage that generation is credited against", 1.0, "fraction", TAGS.DEFAULT_SOURCED,
         S("Modeling choice: value generation up to usage only", null, "Surplus credits expire at 12 months.", WHAT_MODELING_CHOICE),
-        "A conservatism knob: the share of your annual usage the calculator lets generation be credited against. At 100%, every generated kWh counts up to your full annual usage. Lower it to model situations where crediting works out worse — for example a bad seasonal mismatch where some credits expire before you can use them."),
+        "A safety margin: the share of your yearly usage your panels' output is allowed to be credited against. At 100%, every unit you generate counts, up to your total yearly use. Lower it to model crediting working out worse than expected — for instance a bad seasonal mismatch where some credits expire before you get to use them."),
       ...capitalDefaults(),
     }),
     run: (a) => computeRooftop({
@@ -540,11 +541,11 @@ const OPTIONS = {
           S("Modeling choice: ~$0 on the default flat rate (arbitrage lives in the time-of-use mode)", null,
             "CMP's optional time-of-use delivery rate (eff. Jul 1, 2026) is a genuine but conditional, delivery-only arbitrage — modeled by the off-by-default tou_enrolled mode, not by this number. On the flat rate there is no spread; NEB already credits rooftop export at retail.",
             "A modeling choice this calculator states openly: with a flat rate and retail-value NEB credits, there is no price spread for a battery to earn outside the optional time-of-use rate. The reasoning is in the note; the time-of-use rates themselves are sourced on the arbitrage assumptions."),
-          "Money the battery saves on the bill itself each year, outside the time-of-use arbitrage modeled separately. On the default flat rate (CMP Rate A: delivery AND supply both flat) there is no intraday price spread, and rooftop export is already credited at retail value under net energy billing — so the honest default is $0. Residential time-of-use arbitrage DOES exist, but it's conditional and delivery-only, so it lives in its own switch (tou_enrolled) rather than being buried here."),
+          "Money the battery saves on your bill each year, apart from time-of-use savings, which are counted separately. On the default flat rate CMP charges the same price around the clock, so there is no cheap hour and expensive hour for a battery to play against — and rooftop export already earns full retail credit. That makes $0 the honest default. Switching to the optional time-of-use rate can genuinely save money, but only for some homes, so it's the separate “Enrolled in the optional time-of-use rate?” setting rather than something folded quietly into this number."),
         tou_enrolled: A("tou_enrolled", "Enrolled in the optional time-of-use delivery rate? (0 = no, 1 = yes)", 0.0, "0 or 1", TAGS.DEFAULT_SOURCED,
           S("Modeling choice: time-of-use arbitrage is an optional, off-by-default mode", null,
             "Enrollment is a choice, not the default — and CMP's spread is fat but conditional (needs ~86% off-peak), so the mode ships off. Versant's Home Eco is thin but nearly risk-free.", WHAT_MODELING_CHOICE),
-          "Whether you've switched from the default flat delivery rate to the optional time-of-use rate (CMP's 'Rate TOU', Versant's 'Home Eco'). Off by default because most homes are on the flat rate, where a battery has nothing to arbitrage. Turn it on (set to 1) and the battery faces the three-case time-of-use math: under a 15.8% on-peak share the rate alone wins and the battery adds gravy; over it, the battery has to rescue the enrollment from the 3.6× on-peak penalty."),
+          "Whether you've switched from the default flat delivery rate to the optional time-of-use rate (CMP's 'Rate TOU', Versant's 'Home Eco'). Off by default because most homes are on the flat rate, where the price never changes and a battery has nothing to trade against. Turn it on and the answer depends on how much electricity you use on weekday evenings: if it's a small share, the rate saves you money by itself and the battery adds more on top; if it's a large share, those hours cost enough that the battery has to earn the switch back."),
         annual_usage_kwh: t.annual_usage_kwh,
         on_peak_share: t.on_peak_share,
         residual_coverage: t.residual_coverage,
@@ -566,7 +567,7 @@ const OPTIONS = {
           S("Expected Powerwall 3 service life ~12–15 yr (default 13); warranty is 10", "https://www.energysage.com/energy-storage/best-home-batteries/tesla-powerwall-battery-complete-review/",
             "Warranty (10 yr, 70% retention) ≠ life. Model the ~13-yr expected life with continued ~3%/yr fade; keep warranty_years as the separate risk window.",
             "A modeling choice anchored to the manufacturer's warranty terms and LFP-lifespan reporting (EnergySage review plus battery-life explainers): the warranty floor is 10 years, the reported expected service life ~12–15."),
-          "How many years of battery value the comparison counts — set to the expected service life of an LFP battery like the Powerwall 3 (~12–15 years, default 13), not the 10-year warranty, which is a guarantee floor the way a car warranty is. Still much shorter than the 25-year panel horizon. Honest caveat: with ~$0 bill savings the extra years add ~$0 each, so the longer horizon nudges NPV without flipping the resilience-not-ROI verdict — its real effect is that you shouldn't budget a year-10 replacement."),
+          "How many years of battery value the comparison counts — set to the expected service life of an LFP battery like the Powerwall 3 (~12–15 years, default 13), not the 10-year warranty, which is a guarantee floor the way a car warranty is. Still much shorter than the 25-year panel horizon. Honest caveat: with bill savings near $0, each extra year adds almost nothing, so a longer horizon nudges the numbers without changing the conclusion that a battery is bought for resilience rather than for returns. Its real effect is that you shouldn't budget for replacing it at year 10."),
       };
     },
     run: (a) => computeBattery({
@@ -605,7 +606,7 @@ const OPTIONS = {
         value_per_usable_kwh_yr: A("value_per_usable_kwh_yr", "Arbitrage value per usable kWh of battery per year", 90.13, "$/kWh/yr", TAGS.DEFAULT_SOURCED,
           S("CMP time-of-use tariff arithmetic: 250 × ($0.428836 − $0.061470/0.90) ≈ $90.13", CMP_TOU_URL,
             "Exact algebra on the sourced tariff rates with a 0.90 round-trip efficiency. Break-even ≈ $901/kWh simple over 10 yr (~$633 at 7% NPV).", WHAT_CMP_TOU),
-          "What one kWh of battery capacity earns per year once you're on the time-of-use rate: 250 weekday cycles times the on-peak price avoided, net of the ~10% round-trip charging loss. Multiply by the analysis horizon and you get the break-even installed cost — about $901/kWh over 10 years — which is why a cheap plug-in unit clears it and a $998/kWh Powerwall doesn't."),
+          "What one kilowatt-hour of battery capacity earns you per year on the time-of-use rate: one charge-and-discharge every weekday, each one avoiding the expensive evening price, minus the tenth or so of the energy lost in charging. Multiply by how many years the battery lasts and you get the most it's worth paying — about $901 per kilowatt-hour over 10 years. That's why a cheap plug-in unit is worth it and a $998/kWh installed battery isn't."),
         installed_cost_per_kwh: A("installed_cost_per_kwh", "Plug-in battery cost per usable kWh", 600, "$/kWh", TAGS.UNSOURCED, null,
           "What a buy-and-plug battery costs per usable kWh. Ballparks: consumer power stations (EcoFlow, Bluetti, Anker) run roughly $500–700/kWh; a DIY LFP battery plus inverter more like $300–500/kWh. Compare whatever you find against the break-even $/kWh the calculator reports — that single comparison is the verdict. No verbatim price page has been ingested yet, so $600 is a placeholder: price a real unit before deciding."),
         federal_itc_pct: A("federal_itc_pct", "Federal tax credit on battery cost", 0.0, "fraction", TAGS.DEFAULT_SOURCED,
@@ -618,7 +619,7 @@ const OPTIONS = {
         horizon_years: A("horizon_years", "Analysis horizon (plug-in battery service life)", 10, "years", TAGS.DEFAULT_SOURCED,
           S("Modeling choice: 10-yr consumer power-station horizon", null,
             "A stated planning life, not a warranty citation — plug-in units typically warrant 2–5 yr; LFP cell cycle life supports ~10 at one cycle/day.", WHAT_MODELING_CHOICE),
-          "How many years of value the comparison counts — a stated ~10-year service life for a consumer power station cycled daily. Shorter than the installed battery's 13-year horizon because the hardware is cheaper and the daily time-of-use cycling works it harder. The break-even scales directly with this: ~$901/kWh at 10 years, ~$1,172 at 13."),
+          "How many years of value the comparison counts — a stated ~10-year service life for a consumer power station cycled daily. Shorter than the installed battery's 13-year horizon because the hardware is cheaper and the daily time-of-use cycling works it harder. The break-even price scales directly with it: a battery pays for itself at about $901 per kilowatt-hour over 10 years, or $1,172 if it lasts 13."),
       };
     },
     run: (a) => computePluginBattery({
@@ -885,6 +886,10 @@ function afterStateChange() {
   syncPickers();
   applyUsageInput();
   syncSharedInputs();
+  // The estimate being judged is about to be a different one. Deliberately NOT in recompute():
+  // editing an assumption refines the scenario you already voted on, and wiping a half-typed
+  // note mid-edit is exactly what keeping this row outside #result was meant to prevent.
+  resetFeedbackRow();
   recompute();
 }
 
@@ -1508,6 +1513,7 @@ function renderCompare(rows, ctx) {
   document.getElementById("tip-body").innerHTML =
     "your electricity usage in kWh — it tightens every option in this comparison at once.";
 
+  renderPeek(peekCompare(rows));
   renderCompareDetail(rows);
   syncQuestionBox();
   syncUrl();
@@ -1542,11 +1548,63 @@ function renderCompareDetail(rows) {
   wireAssumptionInputs(el);
 }
 
+// --- the peek bar -----------------------------------------------------------
+// Tabulated, never recomputed: every figure here is read straight off the same result object
+// #result was rendered from. If the peek ever disagreed with the card it shadows, it would be a
+// second answer — the one thing this page must never have.
+
+function peekNpv(npv) {
+  return `<span class="num ${npv > 0 ? "pos" : "neg"}">${money0(npv)}</span>`;
+}
+
+function peekItem(name, facts) {
+  return `<div class="peek-item"><span class="peek-name">${name}</span>${facts}</div>`;
+}
+
+function renderPeek(inner) {
+  const peek = document.getElementById("peek");
+  if (peek) peek.innerHTML = `<div class="peek-in">${inner}</div>`;
+}
+
+function peekSingle(r) {
+  let facts = `<span class="num">${money0(r.annualSavings)}</span><span class="peek-u">/yr</span>`;
+  if (currentOption === "community") {
+    facts += `<span class="num">$0</span><span class="peek-u">upfront</span>`;
+  } else {
+    facts += `<span class="num">${money0(r.upfrontCost)}</span><span class="peek-u">upfront</span>`
+      + `<span class="peek-u">npv</span>${peekNpv(r.capital.npv)}`;
+  }
+  return peekItem(OPTIONS[currentOption].label, facts);
+}
+
+function peekCompare(rows) {
+  return rows.map((row) => {
+    if (row.err) return peekItem(OPTIONS[row.key].label, `<span class="peek-u">n/a</span>`);
+    let facts = `<span class="num">${money0(row.r.annualSavings)}</span><span class="peek-u">/yr</span>`;
+    // Labelled even though hue already marks NPV: colour tells you the SIGN, not what the number
+    // is, and an unlabelled figure beside a labelled one reads as a second savings figure.
+    if (row.key !== "community") facts += `<span class="peek-u">npv</span>${peekNpv(row.r.capital.npv)}`;
+    return peekItem(OPTIONS[row.key].label, facts);
+  }).join("");
+}
+
+// Show it only once #result has scrolled entirely ABOVE the viewport — never while the card is
+// merely still below the fold on first paint, which is also "not intersecting".
+function wirePeek() {
+  const peek = document.getElementById("peek");
+  const card = document.getElementById("result");
+  if (!peek || !card || typeof IntersectionObserver !== "function") return;
+  new IntersectionObserver((entries) => {
+    for (const e of entries) peek.hidden = e.isIntersecting || e.boundingClientRect.top > 0;
+  }, { threshold: 0 }).observe(card);
+}
+
 function render(r, followupText, contextText) {
   const opt = OPTIONS[currentOption];
   const ctx = readCtx();
 
-  // Headline -> the sticky #result card, so the number stays in view while refining below.
+  // Headline -> the #result card. It scrolls; #peek below carries the same numbers on past it,
+  // so the figure you are refining an assumption to move stays in view while you move it.
   let head = `<div class="headline"><p class="card-label">${opt.label} — current estimate</p>`;
   if (currentOption === "community") {
     head += `<div class="big">${money(r.annualSavings)}<span>/yr saved</span></div>`;
@@ -1583,6 +1641,7 @@ function render(r, followupText, contextText) {
     || `The most valuable thing you could tell us: ${opt.followup}.`
       + (opt.example ? ` For example: <span class="eg">“${opt.example}”</span>` : "");
 
+  renderPeek(peekSingle(r));
   renderDetail(r);
   // Last, so the box and the URL describe what was just rendered rather than what preceded it.
   syncQuestionBox();
@@ -1865,6 +1924,7 @@ function initPage() {
   });
 
   wireFeedbackRow();
+  wirePeek();
 
   // A shared scenario wins over the default landing state; otherwise R2 stands — with no user
   // input the default render is the sourced average Maine CMP bill, laid out as the comparison
@@ -1882,6 +1942,10 @@ function initPage() {
 // design; the thumb is only the door.
 //
 // Optional markup, like #copy-link — an older page skeleton must not break the calculator.
+// Assigned by wireFeedbackRow(); a no-op until then (and forever, on an older page skeleton with
+// no feedback row) so callers never have to check whether the row exists.
+let resetFeedbackRow = () => {};
+
 function wireFeedbackRow() {
   const row = document.getElementById("feedback-row");
   if (!row) return;
@@ -1892,6 +1956,18 @@ function wireFeedbackRow() {
   const send = document.getElementById("fb-send");
   const thanks = document.getElementById("fb-thanks");
   let verdict = null;
+
+  // A vote is about ONE scenario — the option and numbers that were on screen when it was cast.
+  // Leaving the thumb lit after the scenario changes makes it a claim about an estimate nobody
+  // has judged, and leaves the user no way to vote on the new one.
+  resetFeedbackRow = () => {
+    verdict = null;
+    up.setAttribute("aria-pressed", "false");
+    down.setAttribute("aria-pressed", "false");
+    note.hidden = true;
+    thanks.hidden = true;
+    text.value = "";
+  };
 
   const vote = (which, btn, other) => {
     verdict = which;
@@ -1914,8 +1990,9 @@ function wireFeedbackRow() {
     if (!typed) return;
     track("feedback", { verdict: verdict || "none", text: typed, scenario_url: scenarioUrl() });
     flushEvents();
-    text.value = "";
-    note.hidden = true;
+    // Fully back to unclicked, then the acknowledgement — a thumb still lit beside "Thanks"
+    // reads as a pending action, and clicking it again would file a duplicate vote.
+    resetFeedbackRow();
     thanks.hidden = false;
   });
 }

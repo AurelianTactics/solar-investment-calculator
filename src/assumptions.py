@@ -127,12 +127,12 @@ def default_assumptions() -> dict[str, Assumption]:
             unit="$/kWh",
             tag=DEFAULT_SOURCED,
             explain=(
-                "The all-in price you pay for each unit (kilowatt-hour) of electricity — supply, "
-                "delivery, and the fixed monthly charge averaged in. The calculator uses it to "
-                "translate your dollar bill into an electricity amount. In the bill-first flow it "
-                "barely moves the dollar savings (it cancels out of the math); what it changes is "
-                "the usage figure shown. Rates reset every January 1, and Versant territory "
-                "differs from CMP."
+                "What one kilowatt-hour of electricity costs you, all in — supply, delivery, and "
+                "the fixed monthly fee spread across your usage. You gave us your bill in "
+                "dollars; this is what turns that into kilowatt-hours, which is the usage figure "
+                "in step 2. If this rate is a little off for your house, your savings estimate "
+                "doesn't change — only the usage figure does. Rates reset every January 1, and "
+                "Versant territory differs from CMP."
             ),
             source=Source(
                 title="Maine DOE — Electricity Prices (CMP, effective Jan 1 2026)",
@@ -180,8 +180,9 @@ def default_assumptions() -> dict[str, Assumption]:
             explain=(
                 "Community solar works like buying gift cards at a markdown: the solar farm puts "
                 "bill credits on your account, you pay the farm for those credits at a discount, "
-                "and the discount is the only money you actually keep. At 15%, every $100 of "
-                "credits costs you $85 — $15 stays in your pocket. A bigger discount means "
+                "and the discount is the only money you actually keep. If the discount is 15%, "
+                "every $100 of credits costs you $85 — $15 stays in your pocket. A bigger "
+                "discount means "
                 "proportionally bigger savings, which makes this the single biggest lever in the "
                 "whole estimate. Always check the discount in the contract you're offered."
             ),
@@ -463,7 +464,8 @@ def balcony_assumptions() -> dict[str, Assumption]:
                 "What an electrician charges to check your circuit and install the dedicated "
                 "outlet Maine requires for plug-in kits over 420 W. It adds straight to the "
                 "upfront cost and stretches the payback. No researched Maine figure has landed "
-                "yet — $300 is a placeholder, so get a local quote and put the real number in."
+                "yet — the default here is a placeholder, so get a local quote and put the real "
+                "number in."
             ),
             source=None,
         ),
@@ -528,9 +530,9 @@ def rooftop_assumptions() -> dict[str, Assumption]:
             explain=(
                 "The going rate for professionally installed rooftop solar in Maine, per watt "
                 "of capacity — panels, inverter, racking, labor, permitting, all of it. "
-                "Multiply by system size in watts for the sticker price. It's the denominator "
-                "of the whole investment case: every dime off this number shortens payback, "
-                "which is why competing quotes matter more than any other shopping step."
+                "Multiply by system size in watts for the sticker price. It's the biggest single "
+                "number in the whole investment case: every dime off it shortens your payback, "
+                "which is why getting competing quotes matters more than any other shopping step."
             ),
             source=Source(
                 title="EnergySage — Maine average $2.95/W (May 2026), before incentives",
@@ -567,11 +569,11 @@ def rooftop_assumptions() -> dict[str, Assumption]:
             unit="$/kWh",
             tag=DEFAULT_SOURCED,
             explain=(
-                "What each net-energy-billing (NEB) credit is worth. Every kWh your panels "
-                "send to the grid earns a credit that offsets the per-kWh portion of your bill "
-                "— but, like all credits, it can never touch the fixed monthly charge, so its "
-                "value is the volumetric rate, not the all-in price. When rates rise, existing "
-                "systems earn more per kWh."
+                "What each unit of electricity your panels send to the grid is worth. Maine "
+                "credits you for it under a program called net energy billing, and that credit "
+                "comes off the per-unit part of your next bill. It can't touch the fixed monthly "
+                "connection fee, though, so it's worth the per-unit rate rather than your all-in "
+                "price. When electricity prices rise, an existing system earns more."
             ),
             source=Source(
                 title="Maine DOE — CMP per-kWh (volumetric) charge a NEB credit offsets",
@@ -612,11 +614,11 @@ def rooftop_assumptions() -> dict[str, Assumption]:
             unit="fraction",
             tag=DEFAULT_SOURCED,
             explain=(
-                "A conservatism knob: the share of your annual usage the calculator lets "
-                "generation be credited against. At 100%, every generated kWh counts up to "
-                "your full annual usage. Lower it to model situations where crediting works "
-                "out worse — for example if your usage and the sun are badly mismatched across "
-                "seasons and some credits expire before you can use them."
+                "A safety margin: the share of your yearly usage your panels' output is allowed "
+                "to be credited against. At 100%, every unit you generate counts, up to your "
+                "total yearly use. Lower it to model crediting working out worse than expected "
+                "— for instance if your usage and the sunshine are badly out of step across "
+                "seasons and some credits expire before you get to use them."
             ),
             source=Source(
                 title="Modeling choice: value generation up to usage only",
@@ -642,10 +644,10 @@ def _tou_shared_assumptions() -> dict[str, Assumption]:
             unit="kWh",
             tag=DEFAULT_SOURCED,
             explain=(
-                "How much electricity your home uses in a year. In the time-of-use model it scales the "
-                "enrollment discount: every kWh you use earns the flat-vs-off-peak delivery "
-                "discount just by being enrolled, so a bigger home has a bigger arbitrage "
-                "ceiling. Your utility bill's usage history has the real number — use it."
+                "How much electricity your home uses in a year. Every kilowatt-hour you use "
+                "outside peak hours earns the time-of-use discount, so the more you use, the "
+                "more switching rates is worth. Your utility bill's usage history has your real "
+                "number — use it."
             ),
             source=Source(
                 title="Typical CMP residential usage (~550 kWh/month)",
@@ -666,12 +668,13 @@ def _tou_shared_assumptions() -> dict[str, Assumption]:
             tag=UNSOURCED,
             explain=(
                 "The fraction of your electricity used on weekdays between 5 and 9 p.m. — the "
-                "single number that decides which time-of-use case you're in. Under 15.8%, the time-of-use rate "
-                "beats the flat rate even with no battery (free money by enrolling); over it, "
-                "the on-peak penalty (3.6x the flat rate) bites and a battery has to rescue "
-                "you. Nobody can guess this for you: download your hourly usage from your "
-                "utility's website and measure it. The 25% default is only a placeholder for a "
-                "typical evening-heavy home."
+                "single number that decides whether switching to the time-of-use rate helps you "
+                "or hurts you. Keep it under about 16% and that rate beats the flat rate on its "
+                "own, with no battery needed. Above that, those four hours cost enough to wipe "
+                "out the gain, and a battery has to make up the difference. Nobody can guess "
+                "this for you: download your hourly usage from your utility's website and "
+                "measure it. The 25% default is only a placeholder for a typical evening-heavy "
+                "home."
             ),
             source=None,
         ),
@@ -685,9 +688,10 @@ def _tou_shared_assumptions() -> dict[str, Assumption]:
                 "How much of your 5-9 p.m. load the battery can actually serve. A single-outlet "
                 "plug-in unit covers whatever is plugged into it; a multi-circuit subpanel setup "
                 "covers more. The hard part is winter electric heat — often the biggest on-peak "
-                "load and exactly what a small battery can't carry — which is why this dial "
-                "(0.5-0.9 is the plausible range) is the model's load-bearing unknown. No "
-                "researched Maine figure has landed; 0.7 is a placeholder."
+                "load and exactly what a small battery can't carry — which is why this is the "
+                "least certain number here, and the one most worth thinking hard about (0.5 to "
+                "0.9 is the believable range). No researched Maine figure exists yet, so 0.7 is "
+                "a placeholder."
             ),
             source=None,
         ),
@@ -698,12 +702,11 @@ def _tou_shared_assumptions() -> dict[str, Assumption]:
             unit="$/kWh",
             tag=DEFAULT_SOURCED,
             explain=(
-                "What every kWh you use earns simply by being enrolled in the time-of-use rate, as long "
-                "as it's bought off-peak: the flat delivery rate ($0.119590) minus the off-peak "
-                "delivery rate ($0.061470). Multiply by your annual usage and you have the "
-                "absolute ceiling on time-of-use savings — what a magic free battery covering "
-                "everything would earn. Delivery-only: the supply price is the same on both "
-                "rates and cancels out."
+                "What each kilowatt-hour saves you just by being on the time-of-use rate instead "
+                "of the flat one — as long as you use it outside the 5-9 p.m. peak. Multiply by "
+                "your yearly usage and you get the most time-of-use could ever save you, before "
+                "any battery. It counts delivery charges only: supply costs the same on both "
+                "rates, so switching doesn't change it."
             ),
             source=Source(
                 title="CMP time-of-use delivery-rate tariff (eff. Jul 1, 2026): $0.119590 flat - $0.061470 off-peak",
@@ -723,11 +726,11 @@ def _tou_shared_assumptions() -> dict[str, Assumption]:
             unit="$/kWh",
             tag=DEFAULT_SOURCED,
             explain=(
-                "What every kWh you still buy during weekday 5-9 p.m. costs you versus buying "
-                "it off-peak: the on-peak delivery rate ($0.428836, about 3.6x the flat rate) "
-                "minus the off-peak rate ($0.061470). It's also what every kWh a battery SHIFTS "
-                "off-peak avoids — but it is the penalty avoided, not the saving versus the "
-                "flat rate, which is why the model never multiplies it by your whole usage."
+                "The extra you pay for each kilowatt-hour you still buy during weekday 5-9 p.m., "
+                "compared with buying it outside those hours. On CMP's time-of-use rate those "
+                "four hours cost roughly three and a half times the flat rate, which is what "
+                "makes that rate risky without a battery. It applies only to what you use inside "
+                "that window — never to your whole bill."
             ),
             source=Source(
                 title="CMP time-of-use delivery-rate tariff (eff. Jul 1, 2026): $0.428836 on-peak - $0.061470 off-peak",
@@ -765,10 +768,11 @@ def battery_assumptions() -> dict[str, Assumption]:
             explain=(
                 "Whether you've switched from the default flat delivery rate to the optional "
                 "time-of-use rate (CMP's 'Rate TOU', Versant's 'Home Eco'). Off by default because "
-                "most homes are on the flat rate, where a battery has nothing to arbitrage. "
-                "Turn it on (set to 1) and the battery faces the three-case time-of-use math: under a "
-                "15.8% on-peak share the rate alone wins and the battery adds gravy; over it, "
-                "the battery has to rescue the enrollment from the 3.6x on-peak penalty."
+                "most homes are on the flat rate, where the price never changes and a battery "
+                "has nothing to trade against. Turn it on and the answer depends on how much "
+                "electricity you use on weekday evenings: if it's a small share, the rate saves "
+                "you money by itself and the battery adds more on top; if it's a large share, "
+                "those hours cost enough that the battery has to earn the switch back."
             ),
             source=Source(
                 title="Modeling choice: time-of-use arbitrage is an optional, off-by-default mode",
@@ -857,13 +861,14 @@ def battery_assumptions() -> dict[str, Assumption]:
             unit="$",
             tag=DEFAULT_SOURCED,
             explain=(
-                "Money the battery saves on the bill itself each year, outside the time-of-use "
-                "arbitrage modeled separately. On the default flat rate (CMP Rate A: delivery "
-                "AND supply both flat) there is no intraday price spread, and rooftop export "
-                "is already credited at retail value under net energy billing — so the honest "
-                "default is $0. Residential time-of-use arbitrage DOES exist, but it's conditional and "
-                "delivery-only, so it lives in its own switch (tou_enrolled) rather than being "
-                "buried here."
+                "Money the battery saves on your bill each year, apart from time-of-use savings, "
+                "which are counted separately. On the default flat rate CMP charges the same "
+                "price around the clock, so there is no cheap hour and expensive hour for a "
+                "battery to play against — and rooftop export already earns full retail credit. "
+                "That makes $0 the honest default. Switching to the optional time-of-use rate "
+                "can genuinely save money, but only for some homes, so it's the separate "
+                "\"Enrolled in the optional time-of-use rate?\" setting rather than something "
+                "folded quietly into this number."
             ),
             source=Source(
                 title="Modeling choice: ~$0 on the default flat rate (arbitrage lives in the time-of-use mode)",
@@ -956,9 +961,10 @@ def battery_assumptions() -> dict[str, Assumption]:
                 "service life of an LFP battery like the Powerwall 3 (~12-15 years, default "
                 "13), not the 10-year warranty, which is a guarantee floor the way a car "
                 "warranty is. Still much shorter than the 25-year panel horizon. Honest "
-                "caveat: with ~$0 bill savings the extra years add ~$0 each, so the longer "
-                "horizon nudges NPV without flipping the resilience-not-ROI verdict — its "
-                "real effect is that you shouldn't budget a year-10 replacement."
+                "caveat: with bill savings near $0, each extra year adds almost nothing, so a "
+                "longer horizon nudges the numbers without changing the conclusion that a "
+                "battery is bought for resilience rather than for returns. Its real effect is "
+                "that you shouldn't budget for replacing it at year 10."
             ),
             source=Source(
                 title="Expected Powerwall 3 service life ~12-15 yr (default 13); warranty is 10",
@@ -1037,11 +1043,12 @@ def plugin_battery_assumptions() -> dict[str, Assumption]:
             unit="$/kWh/yr",
             tag=DEFAULT_SOURCED,
             explain=(
-                "What one kWh of battery capacity earns per year once you're on the time-of-use rate: "
-                "250 weekday cycles times the on-peak price avoided, net of the ~10% round-trip "
-                "charging loss. Multiply by the analysis horizon and you get the break-even "
-                "installed cost — about $901/kWh over 10 years — which is why a cheap plug-in "
-                "unit clears it and a $998/kWh Powerwall doesn't."
+                "What one kilowatt-hour of battery capacity earns you per year on the "
+                "time-of-use rate: one charge-and-discharge every weekday, each one avoiding "
+                "the expensive evening price, minus the tenth or so of the energy lost in "
+                "charging. Multiply by how many years the battery lasts and you get the most "
+                "it's worth paying — about $901 per kilowatt-hour over 10 years. That's why a "
+                "cheap plug-in unit is worth it and a $998/kWh installed battery isn't."
             ),
             source=Source(
                 title="CMP time-of-use tariff arithmetic: 250 x ($0.428836 - $0.061470/0.90) ~= $90.13",
@@ -1117,8 +1124,9 @@ def plugin_battery_assumptions() -> dict[str, Assumption]:
                 "How many years of value the comparison counts — a stated ~10-year service "
                 "life for a consumer power station cycled daily. Shorter than the installed "
                 "battery's 13-year horizon because the hardware is cheaper and the daily "
-                "time-of-use cycling works it harder. The Case-2 break-even scales directly with "
-                "this: ~$901/kWh at 10 years, ~$1,172 at 13."
+                "time-of-use cycling works it harder. The break-even price scales directly with "
+                "it: a battery pays for itself at about $901 per kilowatt-hour over 10 years, "
+                "or $1,172 if it lasts 13."
             ),
             source=Source(
                 title="Modeling choice: 10-yr consumer power-station horizon",

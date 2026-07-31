@@ -18,15 +18,40 @@
         * DONE WITH REFINEMENT somewhere have to explain TOU arbitrage idea near the top. Maybe in the expand button a bit? I'm not sure where
             * maybe all the options should have a brief explanation on mouse over or expand. wouldn't hurt to have for this. This can be a sentence or two for most of them. Keep it high level and simple and use existing text fields / places. Don't make this more cluttered.
 
-* going through handoff doc, need to merge branch into master
-* review W4 and W5
+* DONE gave the below in a prompt, will need to do some human hand off to confirm
+
+* DONE going through handoff doc, need to merge branch into master
+    * DONE test 5 issue:
+        * need to check inside railway
+    * test persistance
+    * test the SSH issue
+* DONE review W4 and W5
     * REVIEW W4 (Railway)
     * REVIEW W5 MCP
     * W4 and W5 have a hand off plan
         * docs/deploy-handoff.md
         * need to refine implementation a bit, especially W5
         * wait 
-* minimal feedback stuff plan
+* test the W4 railway deploy
+    * REVIEW asked for fixes,
+        * does the saving and analysis stuff no longer flow down to it
+            * ti thought the comparison or the single option was supposed to flow
+        * community solar all in residential price doesn't really make sense. what is bill-first  flow
+            * proposed fix, try to get it deployed
+            * try to understand the otehr ones too
+        * something off button stays clicked even when submitted or changing options
+            can't unclick the UP / down button
+    * how is that value derived from the source linked: Annual production per kW (Maine)
+    * check battery, plug in batter, and pairings after the fixes
+1200
+kWh/kW/yr
+default (sourced)
+What this means
+How much electricity one kilowatt of panels actually produces over a year in Maine's real climate — clouds, snow, and winter sun angles included. Multiply by system size to get annual output. Sunnier states run higher; shading, a bad tilt, or a north-facing balcony would drag yours below the default.
+
+source: Maine PV yield; consistent with the OPA $388/yr anchor
+* DONE udnerstnd the W5 MCP stuff
+* DONE minimal feedback stuff plan
     * plan written, review
     * docs/plans/2026-07-20-001-feat-minimal-user-feedback.md
     * work started on this
@@ -35,6 +60,19 @@
 
 * when done with the plan, backlog and next ideas / future iterations
     * organize, what next steps would be, fun stuff to di etc
+    * DONE think through waht I would want to do and what I expect to see
+        * more states, more optimization, clearer website, more ROI stuff, more potential options for things (expand DER)
+        * plug in solar only and across states. status, options, products etc
+        * how to monetize
+        * testing the LLM part with metrics and expanded logging
+        * bunch of other backlog ideas belwo
+    * DONE read backlog
+    * DONE read agent thoughts
+        * read backlog.MD
+        * read 3 possible plans
+        * make sure noted as agent only, light / no human review
+    * my fixes
+        * nothing on how to justify if this is worth pursuing. a business case, is it generating usage, if I did a light add spend who uses and the feedback. a trial to assess continuing with this or not
 
 # Fixes
 
@@ -76,6 +114,12 @@
         * fix in research, then fix in the app
 * TOU and plug in battery: only doing one option, this could be expanded
 * glossary, terms, and terminology understanding. maybe links to the wiki
+* a health check on MCP and other things has been suggested
+    * there's still no post-deploy smoke check — /health returned 200 through all three production failures. The tests are good; nothing yet runs them against the deployed URL automatically.
+* better testing of the MCP
+* MCP and better fat / thin calls and the options
+    * defaults to returnign a lot which may or may make sense. like how many times is the prevenance needed
+* better testing and usage of feedback stuff
 
 # Done
 

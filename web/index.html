@@ -114,6 +114,24 @@
     color:var(--muted); font-size:.82rem; line-height:1.5; }
   .context em { color:var(--user); font-style:normal; font-weight:600; }
 
+  /* ---- peek: the same estimate, condensed, once #result has scrolled out of view ----
+     The refine drawer is long (battery+rooftop is 25 assumptions), so the number you are
+     changing an assumption to affect is off-screen exactly when you change it. This is the
+     ledger's top line following you down — same figures, one row, never its own answer. */
+  .peek { position:fixed; top:0; left:0; right:0; z-index:40; background:#fff;
+    border-bottom:2px solid var(--ink); }
+  .peek[hidden] { display:none; }
+  .peek-in { max-width:840px; margin:0 auto; padding:9px 20px; display:flex; gap:16px;
+    align-items:baseline; overflow-x:auto; white-space:nowrap;
+    font:400 .84rem "Public Sans", sans-serif; color:var(--ink-soft); }
+  .peek-item { display:inline-flex; gap:7px; align-items:baseline; flex:0 0 auto; }
+  .peek-item + .peek-item { border-left:1px solid var(--rule); padding-left:16px; }
+  .peek-name { color:var(--ink); font-weight:600; }
+  .peek .num { color:var(--ink); font-weight:600; font-size:.92rem; }
+  .peek .pos { color:var(--pos); }
+  .peek .neg { color:var(--neg); }
+  .peek-u { color:var(--muted); font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; }
+
   /* ---- refine ---- */
   details.refine { margin-top:18px; }
   details.refine > summary { cursor:pointer; list-style:none; padding:11px 14px; background:#fff;
@@ -327,10 +345,18 @@
     /* "unsourced - pending research" is wider than a phone's tag column; let it wrap rather than
        push the whole page into a sideways scroll. */
     .tag { white-space:normal; }
+    /* The peek stays one scrolling row on a phone — wrapping it would grow a fixed bar into a
+       block that eats the viewport it exists to stay out of. */
+    .peek-in { padding:8px 14px; gap:12px; }
+    .peek-item + .peek-item { padding-left:12px; }
   }
 </style>
 </head>
 <body>
+<!-- Condensed estimate, shown only once #result has scrolled past. aria-hidden because every
+     figure in it is already in #result — a screen reader should hear them once, not twice. -->
+<div class="peek" id="peek" hidden aria-hidden="true"></div>
+
 <div class="wrap">
   <div id="parity-banner"></div>
 
