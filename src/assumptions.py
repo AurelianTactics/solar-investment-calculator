@@ -54,6 +54,15 @@ _WHAT_MODELING_CHOICE = (
     "written down in the note so you can check (and change) it. It is 'sourced' in the sense that "
     "the choice is documented, not that an outside authority published the number."
 )
+# The per-kW yield is the one load-bearing input with nothing published behind it. Both options
+# that use it point here rather than at a document, because no document in the research repo
+# states a Maine yield — see the note on each for how the number was arrived at instead.
+_WHAT_DERIVED_YIELD = (
+    "Not an external document. No source in our research publishes a Maine per-kW yield — this "
+    "number is worked backwards from other people's figures, so treat it as unsourced. It is also "
+    "the single biggest lever in the estimate: every dollar of savings scales with it. A measured "
+    "figure (an NREL PVWatts run for a Maine location) would replace it."
+)
 _WHAT_CMP_TOU = (
     "Central Maine Power's own published tariff page for its optional residential Time-of-Use "
     "delivery rate (effective July 1, 2026). Utility rates are approved in public filings with "
@@ -379,13 +388,18 @@ def balcony_assumptions() -> dict[str, Assumption]:
                 "Maine's real climate — clouds, snow, and winter sun angles included. Multiply "
                 "by system size to get annual output. Sunnier states run higher; shading, a bad "
                 "tilt, or a north-facing balcony would drag yours below the default. This is "
-                "the physics knob of the whole estimate."
+                "the physics knob of the whole estimate — and the one number here that nobody "
+                "published: it is worked backwards from the Public Advocate's savings figure, "
+                "not measured. A vertical railing mount produces meaningfully less than this."
             ),
             source=Source(
-                title="Maine PV yield (~1,200 kWh/kW/yr), consistent with the OPA $388/yr anchor",
+                title="Derived, not published — no document states this yield",
                 url="https://www.nrcm.org/blog/what-to-know-maines-new-plug-in-solar-law/",
-                note="Implied by OPA $388/yr ÷ $0.27/kWh ÷ 1.2 kW. See balcony-answers.md.",
-                what_is_it=_WHAT_NRCM,
+                note="UNSOURCED. Worked backwards as $388/yr ÷ $0.27/kWh ÷ 1.2 kW: the linked "
+                "page gives the Public Advocate's $388/yr savings, not a yield. That division "
+                "also assumes the $388 came from using ~all of the output on-site — if any was "
+                "exported, the real yield is higher than 1,200. See balcony-answers.md.",
+                what_is_it=_WHAT_DERIVED_YIELD,
             ),
         ),
         "self_consumption_fraction": Assumption(
@@ -512,13 +526,17 @@ def rooftop_assumptions() -> dict[str, Assumption]:
                 "How much electricity one kilowatt of panels produces over a year in Maine's "
                 "real climate — clouds, snow, and winter sun angles included. Multiply by "
                 "system size for annual output. A shaded roof, a steep north face, or heavy "
-                "snow cover pulls it down; an ideal south-facing pitch can beat it slightly."
+                "snow cover pulls it down; an ideal south-facing pitch can beat it slightly. "
+                "It is also the biggest lever in this estimate and the one number here with no "
+                "document behind it — a quote from an installer is worth more than our default."
             ),
             source=Source(
-                title="Maine PV yield (~1,200 kWh/kW/yr)",
-                url="https://www.energysage.com/local-data/solar-panel-cost/me/",
-                note="Standard Maine production figure. See rooftop-answers.md.",
-                what_is_it=_WHAT_ENERGYSAGE,
+                title="Unsourced — a conventional round number, no document behind it",
+                note="UNSOURCED. 1,200 is the rule of thumb used across this model; no source in "
+                "our research states a Maine yield. (An EnergySage cost page was cited here "
+                "previously — it gives $/W and payback, but no production figure at all.) "
+                "Pending an NREL PVWatts run for a Maine location. See rooftop-answers.md.",
+                what_is_it=_WHAT_DERIVED_YIELD,
             ),
         ),
         "installed_cost_per_w": Assumption(

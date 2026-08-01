@@ -5,6 +5,18 @@ status: ready
 date: 2026-07-29
 ---
 
+> **Provenance: agent-generated, lightly human-reviewed.** Written by Claude on 2026-07-29. The
+> arbitrage error and the 2026-07-01 source update are **human-identified** — both are recorded in
+> `docs/ideas/ideas.md` in the author's own words. Everything else (the `checked_on` /
+> `recheck_after` schema, the suggested cadences, `tools/check_sources.py`, S3's rendering) is an
+> agent's proposal read for direction, not line by line. The cadence numbers in particular are
+> guesses, not research.
+>
+> **Split by `docs/plans/2026-07-30-001-decide-is-this-worth-pursuing.md`.** S1 is a known-wrong
+> number shipping today and survives every verdict — do it regardless. S2/S3 are about strangers
+> relying on stale numbers, so their urgency depends on whether there are any; under a NARROW
+> verdict a calendar reminder replaces the whole of S2.
+
 # fix: the arbitrage overstatement, and knowing when a source goes stale
 
 ## Summary

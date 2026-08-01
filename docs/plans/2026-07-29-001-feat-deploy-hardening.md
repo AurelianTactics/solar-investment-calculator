@@ -5,6 +5,16 @@ status: ready
 date: 2026-07-29
 ---
 
+> **Provenance: agent-generated, lightly human-reviewed.** Written by Claude on 2026-07-29 from
+> `docs/ideas/ideas.md` and a live verification pass. The three production failures in the Problem
+> Frame are **observed fact** (see commit `4bbd568` and `docs/deploy-handoff.md`); the slicing,
+> effort estimates, and the specific check table are an agent's proposal a human has read for
+> direction, not line by line.
+>
+> **Contingent on `docs/plans/2026-07-30-001-decide-is-this-worth-pursuing.md`.** This plan's value
+> scales with how many strangers use the site, which is unmeasured. **Take S2 (cache-busting)
+> early** — a usage trial can't be read without it — and hold S1/S3/S4 until there's a verdict.
+
 # feat: make a broken deploy impossible to miss
 
 ## Summary

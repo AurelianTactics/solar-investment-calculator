@@ -1,8 +1,9 @@
-# Solar Investment Calculator
+# Solar Options
 
-Turn a Maine homeowner's plain question — *"What savings would I get with community solar when my
+A tool to compare solar and battery options for Maine residents. This is a POC that is lightly tested and reviewed.
+Turns questions like — *"What savings would I get with community solar when my
 bill is $150 a month?"* — into a trustworthy, fact-checkable estimate, with **every number shown as
-a labeled, editable, sourced assumption**, never a black box. Seven options are modeled: community
+a labeled, editable, sourced assumption**, never a black box. Example of modelled options : community
 solar, balcony/plug-in, rooftop, battery, plug-in/DIY battery (TOU arbitrage), battery+rooftop,
 and battery+balcony. Why this exists: [`STRATEGY.md`](STRATEGY.md).
 

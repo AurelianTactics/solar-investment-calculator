@@ -186,12 +186,12 @@ calculation.
 
 | Doc | What it holds |
 |---|---|
-| `STRATEGY.md` | Target problem, transparency approach, audience, active metric |
+| `STRATEGY.md` | Target problem, transparency approach, audience, active metric — plus the open "is this worth pursuing" question |
 | `docs/how-to-use-and-verify.md` | How to drive the calculator and how to trust its numbers |
 | `docs/options-integration-notes.md` | Per-option: what research landed, what firmed up, what surprised us, what's open |
-| `docs/plans/` | Build-ready plans (community-solar POC; the options-expansion plan) |
+| `docs/plans/` | Build-ready plans (community-solar POC; the options-expansion plan). The four newest are **agent-generated and only lightly human-reviewed** — each says so at the top, and `2026-07-30-001` (is this worth pursuing?) gates the urgency of the other three |
 | `docs/brainstorms/` | Phase 1 spec (community-solar requirements) |
-| `docs/BACKLOG.md` | Ideas captured, not scheduled — don't pull one in without a deliberate decision |
+| `docs/BACKLOG.md` | Ideas captured, not scheduled — don't pull one in without a deliberate decision. Agent-generated from `docs/ideas/ideas.md` (the human-authored source), lightly reviewed |
 | `docs/solutions/` | Lessons learned (e.g. verify the runtime before choosing a stack; judge-as-evidence, gate-stays-deterministic) |
 | `docs/design/` | Design decisions with their evidence — screenshots + drivable losing candidates (the 2026-07-20 layout bake-off) |
 | `service/README.md` | Service setup, run commands, spend cap, MCP tools, error contract |

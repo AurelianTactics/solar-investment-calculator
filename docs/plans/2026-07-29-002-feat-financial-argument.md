@@ -5,6 +5,18 @@ status: ready
 date: 2026-07-29
 ---
 
+> **Provenance: agent-generated, lightly human-reviewed.** Written by Claude on 2026-07-29 from
+> `docs/ideas/ideas.md`, where the human note reads: *"need to think through how I present the
+> financial argument… maybe 'if I had invested this money, what percent return would I need for
+> equivalent savings'… NPV, IRR etc."* That intent is human. The IRR-as-headline framing, the
+> requirements, the panel contents, and the sequencing are an agent's elaboration of it, read for
+> direction rather than line by line.
+>
+> **The least contingent of the four plans.** It serves the author's own mental model — the stated
+> audience in `STRATEGY.md` — so it survives every verdict in
+> `docs/plans/2026-07-30-001-decide-is-this-worth-pursuing.md`, including STOP. If only one plan
+> gets built, the argument for this one is that it's the only plan that doesn't need an audience.
+
 # feat: make the financial argument the thing this tool is best at
 
 ## Summary

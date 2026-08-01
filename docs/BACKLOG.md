@@ -3,9 +3,18 @@
 Ideas captured, not scheduled. **Nothing here is committed** — don't pull an item into work
 without a deliberate decision.
 
+> **Provenance: agent-generated, lightly human-reviewed.** This file and the four plans it points
+> to (`docs/plans/2026-07-29-*`, `docs/plans/2026-07-30-001-*`) were written by Claude from the raw
+> notes in `docs/ideas/ideas.md` and from a verification pass. A human has read them for direction,
+> not line by line: the tiering, the effort estimates, the "why now" arguments, and every number in
+> the plans are an **agent's proposal**. The human-authored source is `docs/ideas/ideas.md` — when
+> this file says something that isn't traceable there or to a commit, treat it as a suggestion that
+> hasn't been checked. Items are not committed work and effort marks are guesses.
+
 Formalized 2026-07-29 from three sources: the previous backlog (concept + `STRATEGY.md` + the
 Phase 1 brainstorm), the working notes in `docs/ideas/ideas.md`, and findings from the first real
-verification pass against the live Railway deploy. `docs/ideas/ideas.md` stays as the raw scratch
+verification pass against the live Railway deploy. Revised 2026-07-30 to add Tier 0, which is the
+question the rest of the file assumes an answer to. `docs/ideas/ideas.md` stays as the raw scratch
 pad; **this file is the formal version** — when the two disagree, this one wins.
 
 ## How to read this
@@ -20,16 +29,53 @@ Each item carries an effort and a **why-now**, because the hard part of picking 
 | **L** | A week+, or needs research to land first. |
 | **?** | Genuinely unscoped — the first task is scoping it. |
 
-Three items have build-ready plans written and are marked **→ PLAN**. Those are the ones to reach
+Four items have build-ready plans written and are marked **→ PLAN**. Those are the ones to reach
 for first if you come back with limited time and want to just start.
 
 ---
+
+## Tier 0 — is this worth pursuing at all
+
+*Why this tier exists: every other item below is a "make it better" item, and none of them asks
+whether better is the constraint. The tiers underneath are ranked as if the answer is "yes, for
+strangers, indefinitely" — which nobody has decided. **Tier 0 changes the ranking of Tiers 1–7,
+so doing it after them is doing them on a coin flip.***
+
+- **→ PLAN** `docs/plans/2026-07-30-001-decide-is-this-worth-pursuing.md` — **[M, mostly waiting]**
+  the three meanings of "worth it", a cost baseline, a three-arm trial (free first), pre-registered
+  thresholds, and a verdict that re-ranks this file.
+- **Nobody has measured what this costs.** **[S]** Railway invoice + actual Anthropic spend to
+  date. "It loses money but people use it" is unreadable without the number after "loses."
+- **Nobody has measured whether anyone uses it.** **[S]** The instrumentation shipped 2026-07-21
+  and the log has never been read as a whole. Do this before building anything that assumes an
+  audience.
+- **How to monetize — and whether to.** **[?]** *In the raw notes and missing here until
+  2026-07-30.* The honest finding in the plan: the only mechanism with real money in it
+  (installer lead generation) is the exact thing this tool was built as an alternative to, and
+  taking it means retiring `STRATEGY.md` rather than extending it. The non-conflicting paths
+  (white-label to a nonprofit or Efficiency Maine, a grant, sponsorship) are small and slow.
+  **Don't drift into lead-gen one feature at a time** — it's a product change, decided in writing
+  or not at all.
+- **`STRATEGY.md` may already be out of date.** **[S]** It says the audience is the author and
+  that helping others is "a welcome bonus, not the goal." Much of Tiers 1 and 4 only makes sense
+  if that has changed. Either update the strategy or cut the work — the current pairing is
+  incoherent and costs an afternoon to fix.
+- **Instrumentation gaps that would make any trial unreadable.** **[S]** Query strings aren't
+  logged (so `utm_source` is invisible and trial traffic can't be separated from organic); there's
+  no session id (funnels fall back to `(ip, ua, day)`, which is both less accurate *and* more
+  identifying than a random per-tab id); nothing asks "did this help you decide?". Details in the
+  plan.
 
 ## Tier 1 — the deploy can still break silently
 
 *Why this tier is first: on 2026-07-29 the site went down during a routine redeploy and nothing
 told anyone. It came back only because someone happened to be looking. Everything below is a
 variant of "we would not know."*
+
+> **Contingent on Tier 0.** This tier's value is proportional to how many strangers are on the
+> site. If the verdict is NARROW (a personal tool), most of it should be cut rather than
+> scheduled. The one exception is cache-busting, which a trial needs in order to be readable —
+> take that slice early, leave the rest until there's a verdict.
 
 - **→ PLAN** `docs/plans/2026-07-29-001-feat-deploy-hardening.md` — **[M]** covers the next four
   items as one piece of work.
@@ -91,6 +137,11 @@ right now nothing checks it. There is also one known-wrong number.*
 
 ## Tier 4 — reach
 
+> **Contingent on Tier 0, more than any other tier.** Every item here widens the audience, which
+> is only worth paying for if the current audience of one town's worth of people is engaging.
+> Widening reach before knowing that is buying a bigger megaphone without checking whether anyone
+> liked the first sentence.
+
 - **Zip code or address → utility and rates.** **[M]** Removes the biggest "is this even about
   me?" barrier. Currently CMP is assumed.
 - **More states.** **[L]** The single largest audience multiplier, and the one most likely to
@@ -149,7 +200,9 @@ right now nothing checks it. There is also one known-wrong number.*
   deliberate prune — moving detail into the docs it already links — is overdue.
 - **Regular tidying.** **[S]** Ongoing.
 - **More user testing.** **[?]** The instrumentation now exists to make this cheap; what's missing
-  is anyone to test with. Distribution, not tooling.
+  is anyone to test with. Distribution, not tooling. **Promoted into Tier 0** as arm 1 of the
+  trial (five people, in person, $0) — it's the highest-signal thing on this entire page and it
+  was sitting in the last tier.
 
 ---
 
