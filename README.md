@@ -2,7 +2,7 @@
 
 App for calculating renewable energy options for Maine residents. Proof of concept deployed at: https://solar-options.up.railway.app/
 
-Arose from a community meeting where community solar, rooftop solar, and plug-in solar were discussed. I wondered what was best for me and my budget?
+Arose from a community meeting where community solar, rooftop solar, and plug-in solar were discussed. Which renewable option is best for me and my budget?
 What would have the highest return on investment? Would I be able to save money with these options?
 
 The tool compares solar and battery options. Key components:
